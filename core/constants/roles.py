@@ -1,0 +1,9 @@
+ROLE_USER = "USER"
+ROLE_ADMIN = "ADMIN"
+ROLE_SUPERADMIN = "SUPERADMIN"
+
+ROLE_CHOICES = [
+    (ROLE_USER, "User"),
+    (ROLE_ADMIN, "Admin"),
+    (ROLE_SUPERADMIN, "SuperAdmin"),
+]
