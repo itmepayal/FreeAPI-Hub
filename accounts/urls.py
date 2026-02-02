@@ -1,13 +1,22 @@
 from django.urls import path
-from accounts.views.auth.register import RegisterView
-from accounts.views.auth.email_verification import VerifyEmailView
-from accounts.views.auth.login import LoginView
-from accounts.views.auth.logout import LogoutView
-from accounts.views.auth.refresh_token import RefreshTokenView
-from accounts.views.auth.forgot_password import ForgotPasswordView
-from accounts.views.auth.reset_password import ResetPasswordView
-from accounts.views.auth.change_password import ChangePasswordView
-from accounts.views.auth.resend_email import ResendEmailView
+from accounts.views.auth import (
+    RegisterView,
+    VerifyEmailView,
+    LoginView,
+    LogoutView,
+    RefreshTokenView,
+    ForgotPasswordView,
+    ResetPasswordView,
+    ChangePasswordView,
+    ResendEmailView,
+    Setup2FAView,
+    Enable2FAView,
+    Verify2FAView,
+    Disable2FAView,
+    CurrentUserView, 
+    UpdateAvatarView,
+    ChangeRoleView
+)
 
 urlpatterns = [
     # ------------------------
@@ -34,8 +43,8 @@ urlpatterns = [
     # ------------------------
     # User Profile
     # ------------------------
-    # path('me/', CurrentUserView.as_view(), name='current-user'),
-    # path('me/avatar/', UpdateAvatarView.as_view(), name='update-avatar'),
+    path('me/', CurrentUserView.as_view(), name='current-user'),
+    path('me/avatar/', UpdateAvatarView.as_view(), name='update-avatar'),
 
     # ------------------------
     # OAuth
@@ -48,12 +57,13 @@ urlpatterns = [
     # ------------------------
     # Role Management
     # ------------------------
-    # path('change-role/', ChangeRoleView.as_view(), name='change-role'),
+    path('change-role/', ChangeRoleView.as_view(), name='change-role'),
 
     # ------------------------
     # 2FA
     # ------------------------
-    # path('2fa/setup/', Setup2FAView.as_view(), name='2fa-setup'),
-    # path('2fa/enable/', Enable2FAView.as_view(), name='2fa-enable'),
-    # path('2fa/disable/', Disable2FAView.as_view(), name='2fa-disable'),
+    path('2fa/setup/', Setup2FAView.as_view(), name='2fa-setup'),
+    path('2fa/enable/', Enable2FAView.as_view(), name='2fa-enable'),
+    path('2fa/verify/', Verify2FAView.as_view(), name='2fa-verify'),
+    path('2fa/disable/', Disable2FAView.as_view(), name='2fa-disable'),
 ]

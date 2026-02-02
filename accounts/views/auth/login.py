@@ -1,19 +1,26 @@
-# Django Utilities
+# =============================================================
+# Django
+# =============================================================
 from django.contrib.auth import authenticate
 
+# =============================================================
 # Django REST Framework
+# =============================================================
 from rest_framework import generics, status, permissions
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 
-# Local App Models
+# =============================================================
+# Local App
+# =============================================================
 from accounts.models.user import User
-# Local App Serializer
 from accounts.serializers.auth import UserSerializer, LoginSerializer
-# Local App Swagger Documentation
-from accounts.swagger.auth.login import login_schema
+from accounts.swagger.auth import login_schema
+from accounts.services.auth import LoginService
 
+# =============================================================
 # Core Utilities
+# =============================================================
 from core.utils.responses import api_response
 from core.logging.logger import get_logger
 from core.utils.helpers import get_client_ip
@@ -23,66 +30,75 @@ from core.utils.helpers import get_client_ip
 # =============================================================
 logger = get_logger(__name__)
 
-# ----------------------
-# Helper: Generate JWT tokens
-# ----------------------
-def generate_jwt_tokens(user):
-    refresh = RefreshToken.for_user(user)
-    return str(refresh.access_token), str(refresh)
-
-# ----------------------
+# =============================================================
 # Login View
-# ----------------------
+# =============================================================
 @login_schema
 class LoginView(generics.GenericAPIView):
     """
-    Login user with email & password and return JWT tokens.
+    Login user using email & password and return JWT tokens.
+
+    Features:
+    - Validates email and password via serializer.
+    - Checks if user is active and email is verified.
+    - Handles 2FA (returns temp token if required).
+    - Uses service layer for authentication logic.
+    - Provides structured API responses for success and errors.
     """
     serializer_class = LoginSerializer
     permission_classes = [permissions.AllowAny]
 
     def post(self, request, *args, **kwargs):
+        # Validate input
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        
-        # Validate Email and Password
+
         email = serializer.validated_data["email"]
         password = serializer.validated_data["password"]
-        
-        # Authenticate User
-        user = authenticate(request, email=email, password=password)
-        
-        if not user:
-            logger.warning(f"Failed login attempt for email: {email}")
-            return api_response(
-                message="Invalid credentials.",
-                status_code=status.HTTP_401_UNAUTHORIZED
-            )
-        
-        if not user.is_verified:
-            return api_response(
-                message="Email is not verified. Please verify your email first.",
-                status_code=status.HTTP_403_FORBIDDEN
-            )
-        
-        # Generate JWT tokens
-        access_token, refresh_token = generate_jwt_tokens(user)
 
-        logger.info(
-            f"User logged in: {email} from IP: {get_client_ip(request)}"
-        )
-        
-        # ----------------------
-        # Return API response
-        # ----------------------
+        try:
+            # Delegate login logic to service
+            result = LoginService.login_user(
+                email=email,
+                password=password,
+                request_ip=get_client_ip(request)
+            )
+
+            # Handle 2FA scenario
+            if result.get("requires_2fa"):
+                return api_response(
+                    message="OTP required to complete login.",
+                    data={
+                        "requires_2fa": True,
+                        "temp_token": result["temp_token"],
+                    },
+                    status_code=status.HTTP_200_OK,
+                )
+
+        except ValueError as ve:
+            # Known login errors (invalid credentials, unverified email)
+            logger.warning(f"Login failed for {email}: {str(ve)}")
+            return api_response(
+                message=str(ve),
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                code="login_failed"
+            )
+
+        except Exception as e:
+            # Unexpected errors (DB, JWT, etc.)
+            logger.error(f"Login failed for {email}: {str(e)}", exc_info=True)
+            return api_response(
+                message="Login failed. Please try again later.",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                code="internal_error"
+            )
+
+        # API Response
         return api_response(
             message="Login successful.",
             data={
-                "user": UserSerializer(user).data,
-                "tokens": {
-                    "access": access_token,
-                    "refresh": refresh_token,
-                },
+                "user": UserSerializer(result["user"]).data,
+                "tokens": result["tokens"],
             },
-            status_code=status.HTTP_200_OK
+            status_code=status.HTTP_200_OK,
         )

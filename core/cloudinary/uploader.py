@@ -1,5 +1,9 @@
+# core/cloudinary/uploader.py
 import cloudinary.uploader
 import logging
+
+# Ensure config is loaded first
+from core.cloudinary.config import cloudinary  
 
 logger = logging.getLogger(__name__)
 

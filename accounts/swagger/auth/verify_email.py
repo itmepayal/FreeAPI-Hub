@@ -1,5 +1,5 @@
 from drf_spectacular.utils import OpenApiExample, extend_schema, OpenApiResponse
-from accounts.serializers.auth import VerifyEmailSerializer
+from accounts.serializers.auth.auth import VerifyEmailSerializer
 
 # =============================================================
 # Verify Email Swagger

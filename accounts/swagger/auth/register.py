@@ -1,5 +1,5 @@
 from drf_spectacular.utils import OpenApiExample, extend_schema, OpenApiResponse
-from accounts.serializers.auth import (
+from accounts.serializers.auth.auth import (
     RegisterSerializer, 
 )
 

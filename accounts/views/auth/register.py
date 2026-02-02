@@ -1,26 +1,24 @@
-# Python Standard Library
-import secrets
-import hashlib
-from datetime import timedelta
-
-# Django Utilities
-from django.utils import timezone
-from django.conf import settings
+# =============================================================
+# Django
+# =============================================================
 from django.db import transaction
 
+# =============================================================
 # Django REST Framework
+# =============================================================
 from rest_framework import generics, status, permissions
 
-# Local App Models
-from accounts.models import User, UserSecurity
-# Local App Serializers
+# =============================================================
+# Local App
+# =============================================================
 from accounts.serializers.auth import RegisterSerializer, UserSerializer
-# Local App Swagger Documentation
-from accounts.swagger.auth.register import register_schema
+from accounts.swagger.auth import register_schema
+from accounts.services.auth import RegisterService
 
+# =============================================================
 # Core Utilities
+# =============================================================
 from core.logging.logger import get_logger
-from core.email.services import send_email
 from core.utils.helpers import get_client_ip
 from core.utils.responses import api_response
 
@@ -29,81 +27,94 @@ from core.utils.responses import api_response
 # =============================================================
 logger = get_logger(__name__)
 
-# ----------------------
+
+# =============================================================
 # Register View
-# ----------------------
+# =============================================================
 @register_schema
 class RegisterView(generics.CreateAPIView):
     """
-    Registers a new user, sends an email verification link,
-    and returns the newly created user.
+    User registration endpoint.
+
+    Flow:
+    1. Validate incoming registration data
+    2. Create user inside a DB transaction
+    3. Generate email verification token
+    4. Send verification email (outside transaction)
+    5. Return created user payload
+
+    Design Notes:
+    - User creation and security updates are atomic
+    - Email sending is intentionally executed AFTER commit
+    - Business logic is delegated to service layer
     """
+
     serializer_class = RegisterSerializer
     permission_classes = [permissions.AllowAny]
 
     def post(self, request, *args, **kwargs):
+        """
+        Handle user registration request.
+        """
+        # Validate request payload
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         try:
-            # ----------------------
-            # DB transaction for safe creation
-            # ----------------------
+            # Atomic block ensures user + security data
+            # are either fully created or fully rolled back
             with transaction.atomic():
+                # Create user
                 user = serializer.save()
+
+                # Audit log for traceability
                 logger.info(
-                    f"New user registered: {user.email} (ID: {user.id}) "
-                    f"from IP: {get_client_ip(request)}"
+                    "New user registered",
+                    extra={
+                        "user_id": user.id,
+                        "email": user.email,
+                        "ip": get_client_ip(request),
+                    },
                 )
 
-                # Ensure UserSecurity exists
-                security, _ = UserSecurity.objects.get_or_create(user=user)
+                # Generate and persist email verification token
+                raw_token = RegisterService.create_email_verification(user)
 
-                # Generate email verification token
-                un_hashed = secrets.token_hex(20)
-                hashed = hashlib.sha256(un_hashed.encode()).hexdigest()
-                expiry = timezone.now() + timedelta(hours=24)
-
-                security.email_verification_token = hashed
-                security.email_verification_expiry = expiry
-                security.save(update_fields=[
-                    "email_verification_token",
-                    "email_verification_expiry"
-                ])
-
-        except Exception as e:
+        except Exception as exc:
+            # Any failure here rolls back the transaction
             logger.error(
-                f"Registration failed for email {request.data.get('email')}: {str(e)}"
-            )
-            return api_response(
-                message="Registration failed. Please try again.",
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-
-        # ----------------------
-        # Send verification email AFTER successful DB transaction
-        # ----------------------
-        try:
-            verify_link = f"{settings.FRONTEND_URL}/verify-email/{un_hashed}"
-            send_email(
-                to_email=user.email,
-                template_id=settings.SENDGRID_VERIFY_TEMPLATE_ID,
-                dynamic_data={
-                    "username": user.username,
-                    "verification_code": un_hashed,
+                "User registration failed",
+                extra={
+                    "email": request.data.get("email"),
+                    "error": str(exc),
                 },
             )
-            logger.info(f"Verification email sent to {user.email}")
-        except Exception as e:
-            logger.warning(f"Failed to send verification email to {user.email}: {str(e)}")
 
-        # ----------------------
-        # Return API response
-        # ----------------------
+            return api_response(
+                message="Registration failed. Please try again.",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        # Send verification email AFTER successful commit
+        # (email failures should not rollback user creation)
+        try:
+            RegisterService.send_verification_email(user, raw_token)
+        except Exception as exc:
+            # Log warning only — user is already created
+            logger.warning(
+                "Verification email sending failed",
+                extra={
+                    "user_id": user.id,
+                    "email": user.email,
+                    "error": str(exc),
+                },
+            )
+
+        # API Response
         return api_response(
             message="User registered successfully. Please verify your email.",
             data={
                 "user": UserSerializer(user).data,
             },
-            status_code=status.HTTP_201_CREATED
+            status_code=status.HTTP_201_CREATED,
         )
