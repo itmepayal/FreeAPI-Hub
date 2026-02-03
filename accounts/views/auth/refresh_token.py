@@ -14,61 +14,60 @@ from accounts.services.auth import RefreshTokenService
 # Core Utilities
 # =============================================================
 from core.utils.responses import api_response
-from core.logging.logger import get_logger
 
 # =============================================================
-# Logger
-# =============================================================
-logger = get_logger(__name__)
-
-# =============================================================
-# Refresh Token View
+# RefreshToken View
 # =============================================================
 @refresh_token_schema
 class RefreshTokenView(generics.GenericAPIView):
     """
-    API endpoint to generate a new access token using a valid refresh token.
+    API endpoint to refresh JWT access tokens using a valid refresh token.
 
     Responsibilities:
-    - Validate the incoming refresh token.
-    - Use the RefreshTokenService to generate a new access token.
-    - Return the new access token or an error response if invalid.
+    1. Accept a refresh token from the request body.
+    2. Validate input using RefreshTokenSerializer.
+    3. Call RefreshTokenService to generate a new access token.
+    4. Return a standardized API response with the new access token.
+
+    Design Notes:
+    - Uses serializer for input validation.
+    - Service layer handles all business logic, logging, and exception handling.
+    - Publicly accessible endpoint (AllowAny) since refresh tokens are used for re-authentication.
     """
     serializer_class = RefreshTokenSerializer
     permission_classes = [permissions.AllowAny]
 
     def post(self, request, *args, **kwargs):
         """
-        POST method to refresh access token.
+        Handle POST requests to refresh an access token.
 
         Steps:
-        1. Deserialize and validate the refresh token.
-        2. Call service to refresh access token.
-        3. Handle known errors like invalid or expired token.
-        4. Return the new access token in a structured API response.
+        1. Validate incoming request data using serializer.
+        2. Delegate token refresh to RefreshTokenService.
+        3. Return standardized API response.
+
+        Args:
+            request: DRF request object
+
+        Returns:
+            Response: DRF Response with success message and new access token.
+
+        Raises:
+            ValidationError: If serializer validation fails (handled by DRF automatically).
+            InternalServerException: If token refresh fails (propagated via global exception handler).
         """
+        # 1. Validate input
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        # Extract validated refresh token
         refresh_token = serializer.validated_data["refresh_token"]
 
-        try:
-            # Generate new access token using service
-            new_access_token = RefreshTokenService.refresh_access_token(refresh_token)
-            logger.info("Access token refreshed successfully.")
+        # 2. Delegate token refresh to service layer
+        access_token = RefreshTokenService.refresh_access_token(refresh_token)
 
-        except ValueError as ve:
-            # Invalid or expired refresh token
-            logger.warning(f"Failed to refresh access token: {str(ve)}")
-            return api_response(
-                message=str(ve),
-                status_code=status.HTTP_401_UNAUTHORIZED
-            )
-
-        # API Response
+        # 3. Return structured API response
         return api_response(
             message="Access token refreshed successfully.",
-            data={"access": new_access_token},
-            status_code=status.HTTP_200_OK
+            data={"access": access_token},
+            status_code=status.HTTP_200_OK,
         )

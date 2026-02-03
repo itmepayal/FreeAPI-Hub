@@ -23,7 +23,7 @@ let totpUri = "";
 async function setup2FA() {
   const res = await fetch("http://127.0.0.1:8000/api/v1/accounts/2fa/setup/", {
     headers: {
-      Authorization: "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzcwMTE5NjIyLCJpYXQiOjE3NzAwMzMyMjIsImp0aSI6ImI0MWY4Mjk0ZTU4NzQ3ZTc5NmQ4ZDE4N2JkNTM4ZWMyIiwidXNlcl9pZCI6IjlhYmUzM2NhLWE5NTgtNGZhNC1hYjYyLWQ3NTdhYzE1M2RlNSJ9.vW_yooCugzy34ZGsfALHEWyX-U5pLOUe-aEMux-vNt0"
+      Authorization: "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzcwMTk2Nzk2LCJpYXQiOjE3NzAxMTAzOTYsImp0aSI6ImQyMjFiZTdkMjU3YTQwZmJhZjZjNzk5NjZhMTJjNzM0IiwidXNlcl9pZCI6ImIzZTYxNGUxLTA5ZTktNGU3ZS05NGQxLTk4YmRlZTI3NDg0MSJ9.Ma-XBgVLaSLcwX0MkobnI34l8wXRrT9s9_rTYse6gyM"
     }
   });
 
@@ -47,7 +47,7 @@ async function enable2FA() {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzcwMTE5NjIyLCJpYXQiOjE3NzAwMzMyMjIsImp0aSI6ImI0MWY4Mjk0ZTU4NzQ3ZTc5NmQ4ZDE4N2JkNTM4ZWMyIiwidXNlcl9pZCI6IjlhYmUzM2NhLWE5NTgtNGZhNC1hYjYyLWQ3NTdhYzE1M2RlNSJ9.vW_yooCugzy34ZGsfALHEWyX-U5pLOUe-aEMux-vNt0"
+      Authorization: "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzcwMTk2Nzk2LCJpYXQiOjE3NzAxMTAzOTYsImp0aSI6ImQyMjFiZTdkMjU3YTQwZmJhZjZjNzk5NjZhMTJjNzM0IiwidXNlcl9pZCI6ImIzZTYxNGUxLTA5ZTktNGU3ZS05NGQxLTk4YmRlZTI3NDg0MSJ9.Ma-XBgVLaSLcwX0MkobnI34l8wXRrT9s9_rTYse6gyM"
     },
     body: JSON.stringify({ token })
   });

@@ -13,6 +13,7 @@ from .resend_email import ResendEmailView
 from .two_factor import Enable2FAView, Disable2FAView, Setup2FAView, Verify2FAView
 from .user import CurrentUserView, UpdateAvatarView
 from .change_role import ChangeRoleView
+from .oauth import GoogleLoginCallbackView, GitHubLoginCallbackView, GoogleLoginView, GitHubLoginView
 
 # =============================================================
 # Explicitly define the public API for easier imports
@@ -34,4 +35,8 @@ __all__ = [
     "CurrentUserView",
     "UpdateAvatarView",
     "ChangeRoleView"
+    "GoogleLoginView",
+    "GoogleLoginCallbackView",
+    "GitHubLoginView",
+    "GitHubLoginCallbackView"
 ]

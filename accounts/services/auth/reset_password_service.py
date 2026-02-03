@@ -9,6 +9,7 @@ import hashlib
 from django.utils import timezone
 from django.db import transaction
 from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
 
 # =============================================================
 # Local App Models
@@ -16,101 +17,119 @@ from django.contrib.auth.password_validation import validate_password
 from accounts.models import UserSecurity
 
 # =============================================================
-# Core Utilities & Exceptions
+# Core Exceptions
 # =============================================================
-from core.logging.logger import get_logger
-from core.exception.base import (
+from core.exceptions.base import (
     ValidationException,
     InvalidTokenException,
     InternalServerException,
 )
 
 # =============================================================
-# Logger
+# Base Service
 # =============================================================
-logger = get_logger(__name__)
+from accounts.services.base import BaseService
 
 # =============================================================
 # Reset Password Service
 # =============================================================
-class ResetPasswordService:
+class ResetPasswordService(BaseService):
     """
-    Handles resetting user passwords using a valid token.
+    Service layer to handle password resets using a valid token.
+
+    Responsibilities:
+    1. Validate the password reset token.
+    2. Validate the new password strength.
+    3. Atomically update the user's password.
+    4. Invalidate the reset token after successful update.
+    5. Log all actions for audit and traceability.
+
+    Design Notes:
+    - Uses transaction.atomic() for DB consistency.
+    - Uses Django's validate_password to enforce password policies.
+    - Raises clear exceptions for invalid token, weak password, or internal errors.
     """
 
-    @staticmethod
-    def reset_password(token: str, new_password: str):
+    @classmethod
+    def reset_password(cls, token: str, new_password: str):
         """
-        Reset a user's password using the given reset token.
+        Reset a user's password using the provided reset token.
+
+        Steps:
+        1. Hash the incoming token for secure comparison.
+        2. Fetch UserSecurity and validate token expiry.
+        3. Validate new password against Django's password rules.
+        4. Atomically set new password and invalidate the token.
+        5. Log successful reset.
+
+        Args:
+            token (str): Raw password reset token from the user.
+            new_password (str): New password provided by the user.
+
+        Returns:
+            User: Updated user instance.
 
         Raises:
-            InvalidTokenException: If token is invalid or expired
-            ValidationException: If password does not meet security rules
-            InternalServerException: If password update fails
+            InvalidTokenException: If token is invalid or expired.
+            ValidationException: If new password fails validation.
+            InternalServerException: For unexpected failures during update.
         """
-
-        # ----------------------
-        # Hash incoming token
-        # ----------------------
+        # 1. Hash token
         hashed_token = hashlib.sha256(token.encode()).hexdigest()
 
-        # ----------------------
-        # Validate token
-        # ----------------------
-        security = UserSecurity.objects.select_related("user").filter(
-            forgot_password_token=hashed_token,
-            forgot_password_expiry__gt=timezone.now(),
-        ).first()
+        # 2. Validate token
+        security = (
+            UserSecurity.objects
+            .select_related("user")
+            .filter(
+                forgot_password_token=hashed_token,
+                forgot_password_expiry__gt=timezone.now(),
+            )
+            .first()
+        )
 
         if not security:
-            logger.warning("Invalid or expired reset token attempted")
+            cls.logger().warning("Invalid or expired reset token attempted")
             raise InvalidTokenException("Invalid or expired reset token.")
 
         user = security.user
 
-        # ----------------------
-        # Validate password strength
-        # ----------------------
+        # 3. Validate password strength
         try:
             validate_password(new_password, user=user)
-        except Exception as e:
-            logger.warning(
+        except DjangoValidationError as exc:
+            cls.logger().warning(
                 "Password validation failed during reset",
                 extra={"user_id": user.id},
             )
-            raise ValidationException(str(e))
+            raise ValidationException(exc.messages)
 
+        # 4. Atomic update
         try:
-            # ----------------------
-            # Atomic password update
-            # ----------------------
             with transaction.atomic():
+                # Update password
                 user.set_password(new_password)
                 user.save(update_fields=["password"])
 
                 # Invalidate reset token
                 security.forgot_password_token = None
                 security.forgot_password_expiry = None
-                security.save(
-                    update_fields=[
-                        "forgot_password_token",
-                        "forgot_password_expiry",
-                    ]
-                )
+                security.save(update_fields=["forgot_password_token", "forgot_password_expiry"])
 
-            logger.info(
-                "Password reset successfully",
-                extra={"user_id": user.id, "email": user.email},
-            )
-
-            return user
-
-        except Exception as e:
-            logger.error(
+        except Exception as exc:
+            cls.logger().error(
                 "Password reset failed",
                 exc_info=True,
                 extra={"user_id": user.id, "email": user.email},
             )
             raise InternalServerException(
                 "Failed to reset password. Please try again later."
-            ) from e
+            ) from exc
+
+        # 5. Log success
+        cls.logger().info(
+            "Password reset successfully",
+            extra={"user_id": user.id, "email": user.email},
+        )
+
+        return user

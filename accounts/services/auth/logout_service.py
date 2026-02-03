@@ -2,61 +2,90 @@
 # JWT
 # =============================================================
 from rest_framework_simplejwt.tokens import RefreshToken
-from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
 from rest_framework_simplejwt.exceptions import TokenError
 
 # =============================================================
 # Core Utilities & Exceptions
 # =============================================================
-from core.logging.logger import get_logger
-from core.exception.base import InvalidTokenException, InternalServerException
+from core.exceptions.base import (
+    InvalidTokenException,
+    InternalServerException,
+    ServiceException,
+)
 
 # =============================================================
-# Logger
+# Base Service
 # =============================================================
-logger = get_logger(__name__)
+from accounts.services.base import BaseService
 
 # =============================================================
 # Logout Service
 # =============================================================
-class LogoutService:
+class LogoutService(BaseService):
     """
-    Handles user logout by blacklisting refresh tokens.
+    Service layer for handling user logout via refresh token blacklisting.
+
+    Responsibilities:
+    1. Parse and validate the provided JWT refresh token.
+    2. Ensure the token belongs to the authenticated user.
+    3. Blacklist the token to prevent future use.
+    4. Log all relevant actions for traceability.
+
+    Design Notes:
+    - Exceptions are classified and logged appropriately.
+    - Service preserves consistent behavior with other auth services.
     """
-    @staticmethod
-    def logout_user(user, refresh_token: str):
+    @classmethod
+    def logout_user(cls, user, refresh_token: str) -> None:
         """
-        Blacklist a refresh token to log out the user.
+        Log out a user by blacklisting their refresh token.
 
         Args:
-            user: Authenticated User instance
-            refresh_token (str): JWT refresh token to blacklist
+            user: Authenticated User instance.
+            refresh_token (str): JWT refresh token to blacklist.
 
         Raises:
-            InvalidTokenException: If the token is invalid or expired
-            InternalServerException: If unexpected error occurs during logout
+            InvalidTokenException: If token is invalid, expired, or does not belong to user.
+            InternalServerException: If unexpected error occurs during logout.
         """
         try:
-            # --------------------------
             # Parse & verify refresh token
-            # --------------------------
             token = RefreshToken(refresh_token)
 
-            # Ensure token belongs to this user
+            # Ensure token belongs to user
             if str(token.payload.get("user_id")) != str(user.id):
-                logger.warning(f"User {user.email} tried to blacklist a token that doesn't belong to them.")
+                cls.logger().warning(
+                    "Token user mismatch during logout",
+                    extra={"user_id": user.id},
+                )
                 raise InvalidTokenException("Token does not belong to the user.")
 
-            # Blacklist the token
+            # Blacklist token
             token.blacklist()
 
-            # Log successful logout
-            logger.info(f"User logged out successfully: {user.email}")
+            cls.logger().info(
+                "User logged out successfully",
+                extra={"user_id": user.id},
+            )
 
-        except TokenError as te:
-            logger.error(f"Logout failed for {user.email}: {str(te)}")
-            raise InvalidTokenException("Invalid or expired refresh token.") from te
+        except TokenError as exc:
+            cls.logger().warning(
+                "Invalid or expired refresh token during logout",
+                exc_info=True,
+                extra={"user_id": user.id},
+            )
+            raise InvalidTokenException("Invalid or expired refresh token.") from exc
 
-        except Exception as e:
-            logger.error(f"Unexpected error during logout for {user.email}: {str(e)}", exc_info=True)
-            raise InternalServerException("Logout failed due to an unexpected error.") from e
+        except ServiceException:
+            # Preserve already-classified service errors
+            raise
+
+        except Exception as exc:
+            cls.logger().error(
+                "Unexpected error during logout",
+                exc_info=True,
+                extra={"user_id": user.id},
+            )
+            raise InternalServerException(
+                "Logout failed due to an unexpected error."
+            ) from exc

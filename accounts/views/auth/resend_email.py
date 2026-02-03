@@ -13,68 +13,58 @@ from accounts.services.auth import ResendEmailService
 # Core Utilities
 # =============================================================
 from core.utils.responses import api_response
-from core.logging.logger import get_logger
-
-# =============================================================
-# Logger
-# =============================================================
-logger = get_logger(__name__)
 
 # =============================================================
 # Resend Email View
 # =============================================================
 class ResendEmailView(generics.GenericAPIView):
     """
-    Endpoint to resend email verification tokens to users.
-    
-    Key Points:
-    - Accessible by anyone (`AllowAny`) because user may not be verified yet.
-    - Accepts user identification via serializer (e.g., email or user object).
-    - Delegates the actual sending logic to `ResendEmailService`.
-    - Handles errors gracefully without exposing sensitive information.
-    - Returns a generic success message to prevent information leaks.
+    API endpoint to resend email verification tokens.
+
+    Responsibilities:
+    1. Accept a request to resend email verification.
+    2. Validate input using ResendEmailSerializer.
+    3. Delegate token regeneration & email sending to ResendEmailService.
+    4. Return standardized API response.
+
+    Design Notes:
+    - Publicly accessible endpoint (AllowAny) since users may need to verify email again.
+    - Does not reveal if email exists for security reasons.
     """
     serializer_class = ResendEmailSerializer
     permission_classes = [permissions.AllowAny]
 
     def post(self, request, *args, **kwargs):
         """
-        Handles POST requests to resend email verification.
+        Handle POST requests to resend email verification token.
 
         Steps:
-        1. Validate input using `ResendEmailSerializer`.
-        2. Extract `user` and associated `security` instance from validated data.
-        3. Call the `ResendEmailService` to send the verification email.
-        4. Handle specific (`ValueError`) and generic exceptions.
-        5. Return a standardized API response.
+        1. Validate incoming request data.
+        2. Delegate token regeneration & email sending to the service layer.
+        3. Return generic success message.
+
+        Args:
+            request: DRF request object.
+
+        Returns:
+            Response: DRF Response with generic success message.
+
+        Raises:
+            ValidationError: If serializer validation fails (handled by DRF automatically).
+            InternalServerException: If service layer fails to resend email.
         """
-        # Validate incoming data
+        # 1. Validate input
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        # Extract validated objects
-        user = serializer.validated_data["user"]
-        security = serializer.validated_data["security"]
+        # 2. Delegate to service layer
+        ResendEmailService.resend_verification_email(
+            user=serializer.validated_data["user"],
+            security=serializer.validated_data["security"],
+        )
 
-        try:
-            # Delegate email sending to service
-            ResendEmailService.resend_verification_email(user, security)
-
-        except ValueError as ve:
-            # Handle known errors (e.g., user inactive or already verified)
-            return api_response(
-                message=str(ve),
-                status_code=status.HTTP_403_FORBIDDEN,
-            )
-        except Exception:
-            # Handle unexpected errors gracefully
-            return api_response(
-                message="Failed to send verification email. Try again later.",
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-
-        # API Response
+        # 3. Return standardized API response
         return api_response(
-            message="Verification email resent successfully.",
+            message="If the account exists, a verification email has been sent.",
             status_code=status.HTTP_200_OK,
         )

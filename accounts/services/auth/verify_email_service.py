@@ -15,100 +15,97 @@ from django.db import transaction
 from accounts.models import UserSecurity
 
 # =============================================================
-# Core Utilities
+# Core Exceptions
 # =============================================================
-from core.logging.logger import get_logger
-from core.exception.base import (
+from core.exceptions.base import (
     InvalidTokenException,
     OperationNotAllowedException,
-    DatabaseException,
 )
 
 # =============================================================
-# Logger
+# Base Service
 # =============================================================
-logger = get_logger(__name__)
+from accounts.services.base import BaseService
+
 
 # =============================================================
-# Verify Email Service
+# VerifyEmail Service
 # =============================================================
-class VerifyEmailService:
+class VerifyEmailService(BaseService):
     """
-    Handles email verification logic for a user.
+    Service layer for handling user email verification.
+
+    Responsibilities:
+    1. Validate email verification token.
+    2. Mark user as verified in the database.
+    3. Clear token and expiry fields after successful verification.
+    4. Log all relevant actions for traceability.
+
+    Design Notes:
+    - Token is stored hashed (SHA-256) for security.
+    - Uses transaction.atomic() to ensure DB consistency.
+    - Raises meaningful custom exceptions for invalid, expired, or already verified tokens.
     """
 
-    @staticmethod
-    def verify_email(token: str) -> UserSecurity:
+    @classmethod
+    def verify_email(cls, token: str) -> UserSecurity:
         """
-        Verify email based on the token.
+        Verify the user's email using the provided token.
+
+        Steps:
+        1. Hash the incoming token for secure lookup.
+        2. Retrieve the UserSecurity record matching the hashed token and ensure it is not expired.
+        3. Check if user is already verified; if yes, raise OperationNotAllowedException.
+        4. Atomically mark user as verified and clear the token and expiry fields.
+        5. Log success and return the updated UserSecurity object.
 
         Args:
-            token (str): Raw email verification token
+            token (str): Email verification token sent to the user's email.
 
         Returns:
-            UserSecurity: Verified UserSecurity instance
+            UserSecurity: The UserSecurity record for the verified user.
+
+        Raises:
+            InvalidTokenException: If the token is invalid or expired.
+            OperationNotAllowedException: If the user is already verified.
         """
+        # 1. Hash token
         hashed_token = hashlib.sha256(token.encode()).hexdigest()
 
-        try:
-            with transaction.atomic():
-                security = (
-                    UserSecurity.objects
-                    .select_related("user")
-                    .filter(
-                        email_verification_token=hashed_token,
-                        email_verification_expiry__gt=timezone.now(),
-                    )
-                    .first()
-                )
-
-                if not security:
-                    logger.warning("Invalid or expired email verification token")
-                    raise InvalidTokenException(
-                        "Invalid or expired verification token."
-                    )
-
-                user = security.user
-
-                if user.is_verified:
-                    logger.info(
-                        "Email verification attempted on already verified account",
-                        extra={"user_id": user.id},
-                    )
-                    raise OperationNotAllowedException(
-                        "Email is already verified."
-                    )
-
-                # Mark user as verified
-                user.is_verified = True
-                user.save(update_fields=["is_verified"])
-
-                # Clear verification token
-                security.email_verification_token = None
-                security.email_verification_expiry = None
-                security.save(
-                    update_fields=[
-                        "email_verification_token",
-                        "email_verification_expiry",
-                    ]
-                )
-
-                logger.info(
-                    "Email verified successfully",
-                    extra={"user_id": user.id, "email": user.email},
-                )
-
-                return security
-
-        except (InvalidTokenException, OperationNotAllowedException):
-            # Let known service exceptions bubble up
-            raise
-
-        except Exception as e:
-            logger.error(
-                "Email verification failed due to internal error",
-                exc_info=True,
+        # 2. Fetch & validate token
+        security = (
+            UserSecurity.objects
+            .select_related("user")
+            .filter(
+                email_verification_token=hashed_token,
+                email_verification_expiry__gt=timezone.now(),
             )
-            raise DatabaseException(
-                "Failed to verify email. Please try again later."
-            ) from e
+            .first()
+        )
+
+        if not security:
+            cls.logger().warning("Invalid or expired email verification token")
+            raise InvalidTokenException("Invalid or expired verification token.")
+
+        user = security.user
+
+        # 3. Check if already verified
+        if user.is_verified:
+            raise OperationNotAllowedException("Email already verified.")
+
+        # 4. Atomic state mutation
+        with transaction.atomic():
+            user.is_verified = True
+            user.save(update_fields=["is_verified"])
+
+            security.email_verification_token = None
+            security.email_verification_expiry = None
+            security.save(update_fields=["email_verification_token", "email_verification_expiry"])
+
+        # 5. Logging
+        cls.logger().info(
+            "Email verified successfully",
+            extra={"user_id": user.id, "email": user.email},
+        )
+
+        return security

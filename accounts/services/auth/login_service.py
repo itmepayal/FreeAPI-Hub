@@ -21,83 +21,147 @@ from rest_framework_simplejwt.tokens import AccessToken, RefreshToken
 # =============================================================
 # Core Utilities & Exceptions
 # =============================================================
-from core.logging.logger import get_logger
-from core.exception.base import (
+from core.exceptions.base import (
     InvalidTokenException,
     AuthenticationRequiredException,
-    InactiveUserException
+    InactiveUserException,
+    InternalServerException,
+    ServiceException,
 )
 
 # =============================================================
-# Logger
+# Base Service
 # =============================================================
-logger = get_logger(__name__)
+from accounts.services.base import BaseService
 
 # =============================================================
 # Login Service
 # =============================================================
-class LoginService:
+class LoginService(BaseService):
     """
-    Handles user login and JWT token generation.
+    Service layer for handling user login and JWT token generation.
+
+    Responsibilities:
+    1. Authenticate user credentials.
+    2. Ensure user account is active and email is verified.
+    3. Handle 2FA scenarios with temporary tokens.
+    4. Generate JWT access & refresh tokens for standard login.
+    5. Log all relevant actions for traceability.
+
+    Design Notes:
+    - Uses DRF-compatible authenticate method.
+    - 2FA tokens are short-lived and separate from standard JWT tokens.
+    - Exceptions are meaningful and propagate to global handler.
     """
 
-    @staticmethod
-    def login_user(email: str, password: str, request_ip: str):
+    @classmethod
+    def login_user(cls, email: str, password: str, request_ip: str):
         """
-        Authenticate user, check email verification, and generate JWT tokens.
+        Authenticate a user and return tokens or 2FA info.
+
+        Steps:
+        1. Authenticate using email & password.
+        2. Check if user is active.
+        3. Verify if email is confirmed.
+        4. Check if 2FA is enabled; return temporary token if required.
+        5. Otherwise, generate standard JWT tokens.
 
         Args:
-            email (str): User email
-            password (str): User password
-            request_ip (str): IP address for logging
+            email (str): User email.
+            password (str): User password.
+            request_ip (str): IP address for logging.
 
         Returns:
-            dict: Dictionary containing user instance and tokens or 2FA info
-
-        Raises:
-            AuthenticationRequiredException: If credentials are invalid
-            InactiveUserException: If the user is inactive
-            InvalidTokenException: If email is not verified
-        """
-        # Authenticate user
-        user = authenticate(email=email, password=password)
-        
-        if not user:
-            logger.warning(f"Failed login attempt for email: {email} from IP: {request_ip}")
-            raise AuthenticationRequiredException("Invalid credentials.")
-
-        if not user.is_active:
-            logger.warning(f"Inactive user {email} attempted login from IP: {request_ip}")
-            raise InactiveUserException("User account is inactive.")
-
-        if not user.is_verified:
-            raise InvalidTokenException("Email is not verified. Please verify your email first.")
-
-        security = user.security
-
-        # IF 2FA enabled → RETURN temp token
-        if security.is_2fa_enabled:
-            temp_token = LoginService._generate_2fa_token(user)
-            logger.info(f"User {email} requires 2FA for login from IP: {request_ip}")
-            return {
-                "user": user,
-                "requires_2fa": True,
-                "temp_token": temp_token,
+            dict: {
+                "user": User instance,
+                "tokens": JWT tokens (if no 2FA),
+                "requires_2fa": True/False,
+                "temp_token": str (if 2FA required)
             }
 
-        # Generate JWT tokens
-        tokens = LoginService._generate_tokens(user)
+        Raises:
+            AuthenticationRequiredException: Invalid credentials.
+            InactiveUserException: Account inactive.
+            InvalidTokenException: Email not verified.
+            InternalServerException: Unexpected errors.
+        """
+        try:
+            # 1. Authenticate credentials
+            user = authenticate(email=email, password=password)
+            if not user:
+                cls.logger().warning(
+                    "Failed login attempt",
+                    extra={"email": email, "ip": request_ip},
+                )
+                raise AuthenticationRequiredException("Invalid credentials.")
 
-        logger.info(f"User logged in successfully without 2FA: {email} from IP: {request_ip}")
-        return {
-            "user": user,
-            "tokens": tokens,
-        }
+            # 2. Check active status
+            if not user.is_active:
+                cls.logger().warning(
+                    "Inactive user attempted login",
+                    extra={"user_id": user.id, "ip": request_ip},
+                )
+                raise InactiveUserException("User account is inactive.")
 
+            # 3. Check email verification
+            if not user.is_verified:
+                raise InvalidTokenException(
+                    "Email is not verified. Please verify your email first."
+                )
+
+            security = user.security
+
+            # 4. Handle 2FA flow
+            if security.is_2fa_enabled:
+                temp_token = cls._generate_2fa_token(user)
+                cls.logger().info(
+                    "Login requires 2FA",
+                    extra={"user_id": user.id, "ip": request_ip},
+                )
+                return {
+                    "user": user,
+                    "requires_2fa": True,
+                    "temp_token": temp_token,
+                }
+
+            # 5. Standard login: generate tokens
+            tokens = cls._generate_tokens(user)
+            cls.logger().info(
+                "User logged in successfully",
+                extra={"user_id": user.id, "ip": request_ip},
+            )
+
+            return {
+                "user": user,
+                "tokens": tokens,
+            }
+
+        except ServiceException:
+            raise
+
+        except Exception as exc:
+            cls.logger().error(
+                "Unexpected error during login",
+                exc_info=True,
+                extra={"email": email, "ip": request_ip},
+            )
+            raise InternalServerException(
+                "Login failed due to an unexpected error."
+            ) from exc
+
+    # =============================================================
+    # Token Helpers
+    # =============================================================
     @staticmethod
-    def _generate_tokens(user: User):
+    def _generate_tokens(user: User) -> dict:
         """
         Generate standard JWT access & refresh tokens.
+
+        Returns:
+            dict: {
+                "access": str,
+                "refresh": str
+            }
         """
         refresh = RefreshToken.for_user(user)
         return {
@@ -106,9 +170,12 @@ class LoginService:
         }
 
     @staticmethod
-    def _generate_2fa_token(user: User):
+    def _generate_2fa_token(user: User) -> str:
         """
-        Generate a short-lived 2FA token used ONLY for OTP verification.
+        Generate a short-lived 2FA token for OTP verification.
+
+        Returns:
+            str: JWT token valid for 5 minutes with "type": "2fa"
         """
         token = AccessToken.for_user(user)
         token["type"] = "2fa"

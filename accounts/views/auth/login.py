@@ -1,20 +1,12 @@
 # =============================================================
-# Django
-# =============================================================
-from django.contrib.auth import authenticate
-
-# =============================================================
 # Django REST Framework
 # =============================================================
 from rest_framework import generics, status, permissions
-from rest_framework.response import Response
-from rest_framework_simplejwt.tokens import RefreshToken
 
 # =============================================================
 # Local App
 # =============================================================
-from accounts.models.user import User
-from accounts.serializers.auth import UserSerializer, LoginSerializer
+from accounts.serializers.auth import LoginSerializer, UserSerializer
 from accounts.swagger.auth import login_schema
 from accounts.services.auth import LoginService
 
@@ -22,13 +14,7 @@ from accounts.services.auth import LoginService
 # Core Utilities
 # =============================================================
 from core.utils.responses import api_response
-from core.logging.logger import get_logger
 from core.utils.helpers import get_client_ip
-
-# =============================================================
-# Logger
-# =============================================================
-logger = get_logger(__name__)
 
 # =============================================================
 # Login View
@@ -36,64 +22,67 @@ logger = get_logger(__name__)
 @login_schema
 class LoginView(generics.GenericAPIView):
     """
-    Login user using email & password and return JWT tokens.
+    API endpoint to handle user login with email & password.
 
-    Features:
-    - Validates email and password via serializer.
-    - Checks if user is active and email is verified.
-    - Handles 2FA (returns temp token if required).
-    - Uses service layer for authentication logic.
-    - Provides structured API responses for success and errors.
+    Responsibilities:
+    1. Accept login credentials and validate input.
+    2. Delegate authentication, 2FA, and token generation to LoginService.
+    3. Return structured API response with user info and tokens or 2FA instructions.
+
+    Design Notes:
+    - Uses serializer for input validation.
+    - Service layer handles all business logic.
+    - Returns generic success messages; 2FA requirement is clearly indicated.
+    - Publicly accessible (AllowAny permission).
     """
     serializer_class = LoginSerializer
     permission_classes = [permissions.AllowAny]
 
     def post(self, request, *args, **kwargs):
-        # Validate input
+        """
+        Handle POST requests for login.
+
+        Steps:
+        1. Validate input using LoginSerializer.
+        2. Call LoginService.login_user with validated data.
+        3. Return structured API response with user info & tokens, or 2FA instructions.
+
+        Args:
+            request: DRF request object.
+
+        Returns:
+            Response: DRF Response containing login result.
+
+        Raises:
+            ValidationError: If serializer validation fails.
+            Service-layer exceptions: Propagated to global exception handler.
+        """
+        # 1. Validate input
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         email = serializer.validated_data["email"]
         password = serializer.validated_data["password"]
 
-        try:
-            # Delegate login logic to service
-            result = LoginService.login_user(
-                email=email,
-                password=password,
-                request_ip=get_client_ip(request)
-            )
+        # 2. Delegate authentication & token generation to service layer
+        result = LoginService.login_user(
+            email=email,
+            password=password,
+            request_ip=get_client_ip(request)
+        )
 
-            # Handle 2FA scenario
-            if result.get("requires_2fa"):
-                return api_response(
-                    message="OTP required to complete login.",
-                    data={
-                        "requires_2fa": True,
-                        "temp_token": result["temp_token"],
-                    },
-                    status_code=status.HTTP_200_OK,
-                )
-
-        except ValueError as ve:
-            # Known login errors (invalid credentials, unverified email)
-            logger.warning(f"Login failed for {email}: {str(ve)}")
+        # 3. Handle 2FA scenario
+        if result.get("requires_2fa"):
             return api_response(
-                message=str(ve),
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                code="login_failed"
+                message="OTP required to complete login.",
+                data={
+                    "requires_2fa": True,
+                    "temp_token": result["temp_token"],
+                },
+                status_code=status.HTTP_200_OK,
             )
 
-        except Exception as e:
-            # Unexpected errors (DB, JWT, etc.)
-            logger.error(f"Login failed for {email}: {str(e)}", exc_info=True)
-            return api_response(
-                message="Login failed. Please try again later.",
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                code="internal_error"
-            )
-
-        # API Response
+        # 4. Return structured API response
         return api_response(
             message="Login successful.",
             data={

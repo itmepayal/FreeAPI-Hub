@@ -1,9 +1,4 @@
 # =============================================================
-# Django
-# =============================================================
-from django.db import transaction
-
-# =============================================================
 # Django REST Framework
 # =============================================================
 from rest_framework import generics, status, permissions
@@ -13,20 +8,12 @@ from rest_framework import generics, status, permissions
 # =============================================================
 from accounts.serializers.auth import RegisterSerializer, UserSerializer
 from accounts.swagger.auth import register_schema
-from accounts.services.auth import RegisterService
+from accounts.services.auth.register_service import RegisterService
 
 # =============================================================
 # Core Utilities
 # =============================================================
-from core.logging.logger import get_logger
-from core.utils.helpers import get_client_ip
 from core.utils.responses import api_response
-
-# =============================================================
-# Logger
-# =============================================================
-logger = get_logger(__name__)
-
 
 # =============================================================
 # Register View
@@ -34,83 +21,52 @@ logger = get_logger(__name__)
 @register_schema
 class RegisterView(generics.CreateAPIView):
     """
-    User registration endpoint.
+    API endpoint to handle user registration.
 
-    Flow:
-    1. Validate incoming registration data
-    2. Create user inside a DB transaction
-    3. Generate email verification token
-    4. Send verification email (outside transaction)
-    5. Return created user payload
-
+    Responsibilities:
+    1. Accept registration requests with validated input.
+    2. Delegate user creation and email verification logic to RegisterService.
+    3. Return structured API response with newly created user data.
+    
     Design Notes:
-    - User creation and security updates are atomic
-    - Email sending is intentionally executed AFTER commit
-    - Business logic is delegated to service layer
+    - Uses serializer for input validation.
+    - Service layer handles all business logic (user creation, token generation, email sending).
+    - Returns generic success message; email sending failures do not block registration.
+    - Suitable for public access (AllowAny permission).
     """
-
     serializer_class = RegisterSerializer
     permission_classes = [permissions.AllowAny]
 
     def post(self, request, *args, **kwargs):
         """
-        Handle user registration request.
+        Handle POST requests to register a new user.
+
+        Steps:
+        1. Validate incoming request data using RegisterSerializer.
+        2. Call RegisterService.register_user to create the user and trigger email verification.
+        3. Return structured success response with serialized user data.
+
+        Args:
+            request: DRF request object.
+
+        Returns:
+            Response: DRF Response with success message and user data.
+
+        Raises:
+            ValidationError: If serializer validation fails (handled by DRF automatically).
+            InternalServerException: If service layer fails to create user (propagated via global exception handler).
         """
-        # Validate request payload
+        # 1. Validate incoming request data
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        try:
-            # Atomic block ensures user + security data
-            # are either fully created or fully rolled back
-            with transaction.atomic():
-                # Create user
-                user = serializer.save()
+        # 2. Delegate user creation to service layer
+        user = RegisterService.register_user(
+            validated_data=serializer.validated_data,
+            request=request,
+        )
 
-                # Audit log for traceability
-                logger.info(
-                    "New user registered",
-                    extra={
-                        "user_id": user.id,
-                        "email": user.email,
-                        "ip": get_client_ip(request),
-                    },
-                )
-
-                # Generate and persist email verification token
-                raw_token = RegisterService.create_email_verification(user)
-
-        except Exception as exc:
-            # Any failure here rolls back the transaction
-            logger.error(
-                "User registration failed",
-                extra={
-                    "email": request.data.get("email"),
-                    "error": str(exc),
-                },
-            )
-
-            return api_response(
-                message="Registration failed. Please try again.",
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-
-        # Send verification email AFTER successful commit
-        # (email failures should not rollback user creation)
-        try:
-            RegisterService.send_verification_email(user, raw_token)
-        except Exception as exc:
-            # Log warning only — user is already created
-            logger.warning(
-                "Verification email sending failed",
-                extra={
-                    "user_id": user.id,
-                    "email": user.email,
-                    "error": str(exc),
-                },
-            )
-
-        # API Response
+        # 3. Return structured API response
         return api_response(
             message="User registered successfully. Please verify your email.",
             data={

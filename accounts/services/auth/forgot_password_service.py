@@ -20,67 +20,86 @@ from accounts.models import User, UserSecurity
 # =============================================================
 # Core Utilities & Exceptions
 # =============================================================
-from core.logging.logger import get_logger
-from core.email.services import send_email
-from core.exception.base import (
+from core.exceptions.base import (
     ResourceNotFoundException,
-    InternalServerException
+    InternalServerException,
+    ServiceException,
 )
 
 # =============================================================
-# Logger
+# Core Services
 # =============================================================
-logger = get_logger(__name__)
+from core.email.services import send_email
+
+# =============================================================
+# Base Service
+# =============================================================
+from accounts.services.base import BaseService
 
 # =============================================================
 # Forgot Password Service
 # =============================================================
-class ForgotPasswordService:
+class ForgotPasswordService(BaseService):
     """
-    Handles generating forgot password tokens and sending reset emails.
+    Service layer to handle "forgot password" functionality.
+
+    Responsibilities:
+    1. Generate a secure password reset token.
+    2. Persist hashed token and expiry in UserSecurity model.
+    3. Send password reset email with token link.
+    4. Log all relevant actions for traceability.
+
+    Design Notes:
+    - Uses transaction.atomic() to ensure DB consistency.
+    - Does NOT reveal if the user exists to prevent enumeration attacks.
+    - Any unexpected errors are wrapped in InternalServerException.
     """
 
-    @staticmethod
-    def send_reset_email(user: User, request_ip: str):
+    @classmethod
+    def send_reset_email(cls, email: str, request_ip: str) -> None:
         """
-        Generate a secure token, store it, and send password reset email.
+        Handle password reset token generation and email sending.
+
+        Steps:
+        1. Fetch user by email (if exists).
+        2. Create a secure token and hash it.
+        3. Save hashed token and expiry in DB atomically.
+        4. Send reset email to user with the raw token link.
 
         Args:
-            user (User): User instance requesting password reset
-            request_ip (str): IP address for logging
+            email (str): Email address provided in reset request.
+            request_ip (str): IP address for logging purposes.
 
         Raises:
-            ResourceNotFoundException: If the user or UserSecurity object cannot be found
-            InternalServerException: If DB operation or email sending fails
+            InternalServerException: If DB operation or email sending fails.
         """
-        if not user:
-            raise ResourceNotFoundException("User does not exist.")
-
         try:
-            # ----------------------
-            # Atomic transaction to ensure DB consistency
-            # ----------------------
+            # Fetch user; silently ignore if not found
+            user = User.objects.filter(email=email).first()
+            if not user:
+                cls.logger().info(
+                    "Password reset requested for non-existent email",
+                    extra={"email": email, "ip": request_ip},
+                )
+                return  # Silently succeed to prevent enumeration
+
             with transaction.atomic():
-                # Lock row for update to avoid race conditions
                 security, _ = UserSecurity.objects.select_for_update().get_or_create(user=user)
-                
-                # Generate secure token and hash it
+
+                # 1. Generate secure token
                 raw_token = secrets.token_urlsafe(32)
                 hashed_token = hashlib.sha256(raw_token.encode()).hexdigest()
-                
-                # Save token and expiry
+
+                # 2. Set token & expiry
                 security.forgot_password_token = hashed_token
                 security.forgot_password_expiry = timezone.now() + timedelta(
                     hours=settings.PASSWORD_RESET_EXPIRY_HOURS
                 )
-                security.save(update_fields=[
-                    "forgot_password_token",
-                    "forgot_password_expiry"
-                ])
-            
-            # ----------------------
-            # Build reset link and send email
-            # ----------------------
+                security.save(
+                    update_fields=["forgot_password_token", "forgot_password_expiry"]
+                )
+
+            # 3. Send reset email
             reset_link = f"{settings.FRONTEND_URL}/reset-password/{raw_token}"
             send_email(
                 to_email=user.email,
@@ -88,11 +107,20 @@ class ForgotPasswordService:
                 dynamic_data={
                     "username": user.username,
                     "reset_link": reset_link,
-                }
+                },
             )
 
-            logger.info(f"Password reset email sent to {user.email} from IP: {request_ip}")
+            cls.logger().info(
+                "Password reset email sent successfully",
+                extra={"user_id": user.id, "ip": request_ip},
+            )
 
-        except Exception as e:
-            logger.error(f"Failed to generate/send password reset for {user.email}: {str(e)}", exc_info=True)
-            raise InternalServerException("Failed to generate or send password reset email. Please try again later.")
+        except Exception as exc:
+            cls.logger().error(
+                "Failed to generate/send password reset email",
+                exc_info=True,
+                extra={"email": email, "ip": request_ip},
+            )
+            raise InternalServerException(
+                "Failed to generate or send password reset email. Please try again later."
+            ) from exc

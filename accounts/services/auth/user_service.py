@@ -1,5 +1,5 @@
 # =============================================================
-# Local App Services
+# User Services
 # =============================================================
 from accounts.models import User
 from accounts.serializers.auth import UserSerializer
@@ -8,39 +8,91 @@ from accounts.serializers.auth import UserSerializer
 # Core Utilities
 # =============================================================
 from core.cloudinary.uploader import upload_to_cloudinary
-from core.logging.logger import get_logger
-from core.exception.base import ExternalServiceException
+from core.exceptions.base import ExternalServiceException, ServiceException
 
 # =============================================================
-# Logger
+# Base Service
 # =============================================================
-logger = get_logger(__name__)
+from accounts.services.base import BaseService
+
 
 # =============================================================
-# User Services
+# User Service
 # =============================================================
-class UserService:
+class UserService(BaseService):
     """
-    Handles user-related business logic.
+    Service layer for user-related operations.
+
+    Responsibilities:
+    1. Fetch and serialize the current user's profile.
+    2. Handle avatar updates via Cloudinary.
+    3. Log all actions for traceability.
+    4. Wrap external service failures in a consistent exception.
     """
 
-    @staticmethod
-    def get_current_user_profile(user) -> dict:
+    @classmethod
+    def get_current_user_profile(cls, user: User) -> dict:
         """
-        Return serialized profile data for current user.
-        """
-        return UserSerializer(user).data
+        Retrieve the current user's profile as a serialized dictionary.
 
-    @staticmethod
-    def update_avatar(user: User, avatar_file) -> str:
-        """
-        Update user's avatar and return the new avatar URL.
+        Steps:
+        1. Log the profile fetch attempt.
+        2. Serialize the User object using UserSerializer.
+        3. Return serialized data.
+
+        Args:
+            user (User): The currently authenticated user.
+
+        Returns:
+            dict: Serialized user profile.
 
         Raises:
-            ExternalServiceException: If avatar upload fails
+            ServiceException: If any unexpected error occurs during serialization.
         """
         try:
-            # Upload avatar to Cloudinary
+            cls.logger().debug(
+                "Fetching user profile",
+                extra={"user_id": user.id, "email": user.email},
+            )
+            return UserSerializer(user).data
+
+        except Exception as exc:
+            cls.logger().error(
+                "Failed to fetch user profile",
+                exc_info=True,
+                extra={"user_id": user.id, "email": user.email},
+            )
+            raise ServiceException("Could not fetch user profile.") from exc
+
+    @classmethod
+    def update_avatar(cls, user: User, avatar_file) -> str:
+        """
+        Update the user's avatar and return the new URL.
+
+        Steps:
+        1. Log the avatar upload attempt.
+        2. Upload the file to Cloudinary.
+        3. Update the User model with the new avatar URL.
+        4. Log success and return the URL.
+
+        Args:
+            user (User): The user whose avatar is being updated.
+            avatar_file: File object representing the new avatar.
+
+        Returns:
+            str: URL of the uploaded avatar.
+
+        Raises:
+            ExternalServiceException: If the avatar upload fails due to external service.
+            ServiceException: For other unexpected errors.
+        """
+        try:
+            cls.logger().info(
+                "Uploading avatar",
+                extra={"user_id": user.id, "email": user.email},
+            )
+
+            # Upload to Cloudinary
             result = upload_to_cloudinary(
                 avatar_file,
                 folder="avatars",
@@ -49,30 +101,33 @@ class UserService:
                 overwrite=True,
             )
 
-            # Extract secure URL safely
             avatar_url = (
                 result.get("secure_url")
                 if isinstance(result, dict)
                 else str(result)
             )
 
-            # Persist avatar URL
+            # Update user record
             user.avatar = avatar_url
             user.save(update_fields=["avatar"])
 
-            logger.info(
+            cls.logger().info(
                 "Avatar updated successfully",
-                extra={"user_id": user.id, "email": user.email},
+                extra={"user_id": user.id, "avatar_url": avatar_url},
             )
 
             return avatar_url
 
-        except Exception as e:
-            logger.error(
+        except ServiceException:
+            # Re-raise known service exceptions without modification
+            raise
+
+        except Exception as exc:
+            cls.logger().error(
                 "Avatar upload failed",
-                extra={"user_id": user.id, "email": user.email},
                 exc_info=True,
+                extra={"user_id": user.id, "email": user.email},
             )
             raise ExternalServiceException(
                 "Failed to upload avatar. Please try again later."
-            ) from e
+            ) from exc

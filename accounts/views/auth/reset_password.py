@@ -14,12 +14,6 @@ from accounts.services.auth import ResetPasswordService
 # Core Utilities
 # =============================================================
 from core.utils.responses import api_response
-from core.logging.logger import get_logger
-
-# =============================================================
-# Logger
-# =============================================================
-logger = get_logger(__name__)
 
 # =============================================================
 # Reset Password View
@@ -27,56 +21,52 @@ logger = get_logger(__name__)
 @register_schema
 class ResetPasswordView(generics.GenericAPIView):
     """
-    Endpoint to reset a user's password using a valid reset token.
+    API endpoint to reset a user's password using a valid reset token.
 
-    Key Points:
-    - Accessible by anyone (`AllowAny`) because user may not be logged in.
-    - Accepts a password reset token and new password.
-    - Delegates actual password reset logic to `ResetPasswordService`.
-    - Handles invalid token and unexpected errors gracefully.
-    - Returns a generic success message to prevent token abuse information leaks.
+    Responsibilities:
+    1. Accept password reset token and new password from user.
+    2. Delegate password validation and update to ResetPasswordService.
+    3. Return structured API response upon success.
+
+    Design Notes:
+    - Publicly accessible (AllowAny permission).
+    - Does not expose internal errors or token state.
+    - Fully relies on service layer for business logic.
     """
     serializer_class = ResetPasswordSerializer
     permission_classes = [permissions.AllowAny]
 
     def post(self, request, *args, **kwargs):
         """
-        Handles POST requests to reset a user's password.
+        Handle POST request to reset password.
 
         Steps:
-        1. Validate input using `ResetPasswordSerializer`.
-        2. Extract `token` and `new_password` from validated data.
-        3. Call `ResetPasswordService.reset_password` to perform the reset.
-        4. Handle specific (`ValueError`) and generic exceptions.
-        5. Return a standardized API response.
+        1. Validate incoming token and new password using serializer.
+        2. Call ResetPasswordService.reset_password() to perform the update.
+        3. Return success response if password updated successfully.
+
+        Args:
+            request: DRF request object.
+
+        Returns:
+            Response: DRF Response with success message.
+
+        Raises:
+            ValidationError: If serializer validation fails.
+            InvalidTokenException / ValidationException / InternalServerException:
+                If service layer raises an exception, propagated globally.
         """
-        # Validate incoming data
+        # 1. Validate input
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-
         token = serializer.validated_data["token"]
         new_password = serializer.validated_data["new_password"]
 
-        try:
-            # Delegate password reset logic to service layer
-            user = ResetPasswordService.reset_password(token, new_password)
+        # 2. Delegate password reset to service layer
+        ResetPasswordService.reset_password(token=token, new_password=new_password)
 
-        except ValueError as ve:
-            # Handle known errors such as invalid or expired token
-            return api_response(
-                message=str(ve),
-                status_code=status.HTTP_400_BAD_REQUEST
-            )
-        except Exception as e:
-            # Log unexpected errors for debugging while returning generic message
-            logger.error(f"Password reset error: {str(e)}", exc_info=True)
-            return api_response(
-                message="Unable to reset password. Try again later.",
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-
-        # API Response
+        # 3. Return structured API response
         return api_response(
             message="Password reset successfully. You can now log in.",
-            status_code=status.HTTP_200_OK
+            status_code=status.HTTP_200_OK,
         )

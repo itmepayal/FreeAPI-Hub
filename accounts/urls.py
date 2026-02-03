@@ -15,7 +15,11 @@ from accounts.views.auth import (
     Disable2FAView,
     CurrentUserView, 
     UpdateAvatarView,
-    ChangeRoleView
+    ChangeRoleView,
+    GoogleLoginView,
+    GoogleLoginCallbackView,
+    GitHubLoginView,
+    GitHubLoginCallbackView
 )
 
 urlpatterns = [
@@ -45,14 +49,18 @@ urlpatterns = [
     # ------------------------
     path('me/', CurrentUserView.as_view(), name='current-user'),
     path('me/avatar/', UpdateAvatarView.as_view(), name='update-avatar'),
+    
+    # ------------------------
+    # Google OAuth
+    # ------------------------
+    path("google/login/", GoogleLoginView.as_view(), name="google-login"),
+    path("google/callback/", GoogleLoginCallbackView.as_view(), name="google-callback"),
 
     # ------------------------
-    # OAuth
+    # GitHub OAuth
     # ------------------------
-    # path('google/', GoogleLoginView.as_view(), name='google-login'),
-    # path('google/callback/', GoogleLoginCallbackView.as_view(), name='google-callback'),
-    # path('github/', GitHubLoginView.as_view(), name='github-login'),
-    # path('github/callback/', GitHubLoginCallbackView.as_view(), name='github-callback'),
+    path("github/login/", GitHubLoginView.as_view(), name="github-login"),
+    path("github/callback/", GitHubLoginCallbackView.as_view(), name="github-callback"),
 
     # ------------------------
     # Role Management
@@ -60,10 +68,10 @@ urlpatterns = [
     path('change-role/', ChangeRoleView.as_view(), name='change-role'),
 
     # ------------------------
-    # 2FA
+    # Two-Factor Authentication (2FA)
     # ------------------------
-    path('2fa/setup/', Setup2FAView.as_view(), name='2fa-setup'),
-    path('2fa/enable/', Enable2FAView.as_view(), name='2fa-enable'),
-    path('2fa/verify/', Verify2FAView.as_view(), name='2fa-verify'),
-    path('2fa/disable/', Disable2FAView.as_view(), name='2fa-disable'),
+    path('me/2fa/setup/', Setup2FAView.as_view(), name='2fa-setup'),
+    path('me/2fa/enable/', Enable2FAView.as_view(), name='2fa-enable'),
+    path('me/2fa/verify/', Verify2FAView.as_view(), name='2fa-verify'),
+    path('me/2fa/disable/', Disable2FAView.as_view(), name='2fa-disable'),
 ]

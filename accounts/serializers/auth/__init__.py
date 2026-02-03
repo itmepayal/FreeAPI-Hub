@@ -7,6 +7,7 @@ from .password import ChangePasswordSerializer, ResetPasswordSerializer
 from .two_factor import Enable2FASerializer, Disable2FASerializer, Verify2FASerializer
 from .user import UserSerializer, UserPresenceSerializer, UserSecuritySerializer, UpdateAvatarSerializer
 from .admin import ChangeRoleSerializer
+from .oauth import OAuthCallbackSerializer, EmptySerializer
 
 # =============================================================
 # Explicitly define what is exported when importing *
@@ -29,5 +30,7 @@ __all__ = [
     "UserPresenceSerializer",
     "UserSecuritySerializer",
     "ChangeRoleSerializer",
-    "UpdateAvatarSerializer"
+    "UpdateAvatarSerializer",
+    "OAuthCallbackSerializer", 
+    "EmptySerializer"
 ]

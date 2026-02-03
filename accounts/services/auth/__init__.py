@@ -13,6 +13,7 @@ from .verify_email_service import VerifyEmailService
 from .two_factor_service import TwoFactorService
 from .user_service import UserService
 from .change_role_service import ChangeRoleService
+from .oauth_service import GoogleOAuthService, GitHubOAuthService
 
 # =============================================================
 # Explicitly define the public API of this package
