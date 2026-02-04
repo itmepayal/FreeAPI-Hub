@@ -66,6 +66,7 @@ class GoogleOAuthService(BaseService):
                 access_jwt, refresh_jwt = generate_jwt_tokens(user)
 
             params = urlencode({"access": access_jwt, "refresh": refresh_jwt})
+            print(frontend_url)
             return f"{frontend_url}/google/callback?{params}"
 
         except Exception as exc:

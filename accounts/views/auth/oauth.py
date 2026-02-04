@@ -27,7 +27,7 @@ class GoogleLoginCallbackView(generics.GenericAPIView):
         serializer.is_valid(raise_exception=True)
         code = serializer.validated_data["code"]
 
-        redirect_url = GoogleOAuthService.handle_callback(code, frontend_url="http://localhost:3000")
+        redirect_url = GoogleOAuthService.handle_callback(code, frontend_url="http://localhost:5173")
         logger.info(f"Redirecting Google user to {redirect_url}")
         return redirect(redirect_url)
 
@@ -51,6 +51,6 @@ class GitHubLoginCallbackView(generics.GenericAPIView):
         serializer.is_valid(raise_exception=True)
         code = serializer.validated_data["code"]
 
-        redirect_url = GitHubOAuthService.handle_callback(code, frontend_url="http://localhost:3000")
+        redirect_url = GitHubOAuthService.handle_callback(code, frontend_url="http://localhost:5173")
         logger.info(f"Redirecting GitHub user to {redirect_url}")
         return redirect(redirect_url)

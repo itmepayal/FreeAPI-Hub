@@ -25,6 +25,14 @@ class RegisterSerializer(serializers.ModelSerializer):
     - Hashes password before saving
     - Creates a new User instance
     """
+    email = serializers.EmailField(
+        required=True,
+        help_text="Enter a valid email address"
+    )
+    username = serializers.CharField(
+        required=True,
+        help_text="Choose a unique username"
+    )
     password = serializers.CharField(
         write_only=True,
         min_length=6,
@@ -42,7 +50,7 @@ class RegisterSerializer(serializers.ModelSerializer):
         try:
             validate_password(value)
         except Exception as e:
-            raise serializers.ValidationError(str(e))
+            raise serializers.ValidationError(e.messages)
         return value
 
     def create(self, validated_data):

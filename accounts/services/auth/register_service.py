@@ -103,6 +103,9 @@ class RegisterService(BaseService):
 
             # 4. Return user object
             return user
+        
+        except ValidationException:
+            raise
 
         except Exception as exc:
             cls.logger().error(
