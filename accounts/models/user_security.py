@@ -11,6 +11,12 @@ from django.utils import timezone
 from core.models.base import BaseModel
 from core.constants.auth import LOGIN_TYPE_CHOICES, LOGIN_EMAIL_PASSWORD
 
+# ----------------------
+# Token Hash Helper
+# ----------------------
+def hash_token(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
 class UserSecurity(BaseModel):
     # ----------------------
     # User Info
@@ -24,7 +30,7 @@ class UserSecurity(BaseModel):
     # ----------------------
     # Login Type
     # ----------------------
-    login_type = models.CharField(max_length=50, choices=LOGIN_TYPE_CHOICES, default=LOGIN_EMAIL_PASSWORD)
+    login_type = models.CharField(max_length=50, choices=LOGIN_TYPE_CHOICES, default=LOGIN_EMAIL_PASSWORD, db_index=True)
 
     # ----------------------
     # Authentication Tokens
@@ -39,7 +45,79 @@ class UserSecurity(BaseModel):
     # ----------------------
     is_2fa_enabled = models.BooleanField(default=False)
     totp_secret = models.CharField(max_length=32, blank=True, null=True)
+    
+    # ----------------------
+    # TOKEN GENERATORS
+    # ----------------------
+    def generate_forgot_password(self) -> str :
+        raw_token = secrets.token_urlsafe(32)
+        
+        self.forgot_password_token = hash_token(raw_token)
+        self.forgot_password_expiry = timezone.now() + timedelta(hours=settings.PASSWORD_RESET_EXPIRY_HOURS)
 
+        self.save(update_fields=[
+            "forgot_password_token",
+            "forgot_password_expiry"
+        ])
+        
+        return raw_token
+    
+    def generate_email_verification_token(self) -> str:
+        raw_token = secrets.token_urlsafe(32)
+        
+        self.email_verification_token = hash_token(raw_token)
+        self.email_verification_expiry = timezone.now() + timedelta(hours=settings.EMAIL_VERIFICATION_EXPIRY_HOURS)
+
+        self.save(update_fields=[
+            "email_verification_token",
+            "email_verification_expiry"
+        ])
+        
+        return raw_token
+    
+    def verify_forgot_password_token(self, token: str) -> bool:
+        if not self.forgot_password_token:
+            return False
+
+        if not self.forgot_password_expiry:
+            return False
+        
+        if timezone.now() > self.forgot_password_expiry:
+            return False
+        
+        return hash_token(token) == self.forgot_password_token
+        
+    def verify_email_verification_token(self, token: str) -> bool:
+        if not self.email_verification_token:
+            return False
+        
+        if not self.email_verification_expiry:
+            return False
+
+        if timezone.now() > self.email_verification_expiry:
+            return False
+
+        return hash_token(token) == self.email_verification_token
+    
+    # ----------------------
+    # TOKEN CLEANUP
+    # ----------------------
+    def clear_forgot_password_token(self):
+        self.forgot_password_token = None
+        self.forgot_password_expiry = None
+        self.save(update_fields=[
+            "forgot_password_token",
+            "forgot_password_expiry"
+        ])
+    
+    def clear_email_verification_token(self):
+        self.email_verification_token = None
+        self.email_verification_expiry = None
+        self.save(update_fields=[
+            "email_verification_token",
+            "email_verification_expiry"
+        ])
+    
     # ----------------------
     # TOTP (Two-Factor Authentication)
     # ----------------------
@@ -67,3 +145,8 @@ class UserSecurity(BaseModel):
     # ----------------------
     def __str__(self):
         return f"Security<{self.user.email}>"
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["login_type", "is_2fa_enabled"]),
+        ]

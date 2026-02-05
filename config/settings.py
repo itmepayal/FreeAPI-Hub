@@ -130,6 +130,7 @@ REST_FRAMEWORK = {
     ),
     "DEFAULT_THROTTLE_CLASSES": ("rest_framework.throttling.UserRateThrottle",),
     "EXCEPTION_HANDLER": "core.exceptions.handlers.global_exception_handler",
+    "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
 }
 # Purpose: Sets authentication, rate-limiting, filtering, pagination, and OpenAPI schema.
 
@@ -144,7 +145,7 @@ SIMPLE_JWT = {
     "ALGORITHM": "HS256",
     "SIGNING_KEY": SECRET_KEY,
     "AUTH_HEADER_TYPES": ("Bearer",),
-    "AUTH_TOKEN_CLASSES": ("rest_framework_simplejwt.tokens.AccessToken",),
+    "AUTH_TOKEN_CLASSES": ("rest_framework_simplejwt.tokens.AccessToken", "accounts.helpers.TwoFAToken"),
 }
 # Purpose: JWT configuration for secure stateless authentication.
 

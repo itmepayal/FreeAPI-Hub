@@ -1,60 +1,65 @@
 <!DOCTYPE html>
 <html>
-<head>
-  <title>2FA Test</title>
-  <script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
-</head>
-<body>
+  <head>
+    <title>2FA Test</title>
+    <script src="https://cdn.jsdelivr.net/npm/qrcode/build/qrcode.min.js"></script>
+  </head>
+  <body>
+    <h2>2FA Setup</h2>
 
-<h2>2FA Setup</h2>
+    <button type="button" onclick="setup2FA()">Generate QR</button>
 
-<button type="button" onclick="setup2FA()">Generate QR</button>
+    <br /><br />
+    <img id="qrImage" width="200" height="200" />
 
-<br><br>
-<img id="qrImage" width="200" height="200" />
+    <br /><br />
+    <input id="token" placeholder="Enter 6-digit code" />
+    <button type="button" onclick="enable2FA()">Verify</button>
 
-<br><br>
-<input id="token" placeholder="Enter 6-digit code" />
-<button type="button" onclick="enable2FA()">Verify</button>
+    <script>
+      let totpUri = "";
 
-<script>
-let totpUri = "";
+      async function setup2FA() {
+        const res = await fetch(
+          "http://127.0.0.1:8000/api/v1/accounts/me/2fa/setup/",
+          {
+            headers: {
+              Authorization:
+                "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzcwMzk0NTY4LCJpYXQiOjE3NzAzMDgxNjgsImp0aSI6ImFiMTY4YzA2NzA1MDRhOTFhMDYzZDVkNjRhZTgxOTExIiwidXNlcl9pZCI6ImIzZTYxNGUxLTA5ZTktNGU3ZS05NGQxLTk4YmRlZTI3NDg0MSJ9.UOz3QP6IzC2ZBKtW6UY_Uose9nxk3NgFJVd0CHPQBgY",
+            },
+          }
+        );
 
-async function setup2FA() {
-  const res = await fetch("http://127.0.0.1:8000/api/v1/accounts/2fa/setup/", {
-    headers: {
-      Authorization: "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzcwMTk2Nzk2LCJpYXQiOjE3NzAxMTAzOTYsImp0aSI6ImQyMjFiZTdkMjU3YTQwZmJhZjZjNzk5NjZhMTJjNzM0IiwidXNlcl9pZCI6ImIzZTYxNGUxLTA5ZTktNGU3ZS05NGQxLTk4YmRlZTI3NDg0MSJ9.Ma-XBgVLaSLcwX0MkobnI34l8wXRrT9s9_rTYse6gyM"
-    }
-  });
+        const data = await res.json();
+        totpUri = data.data.totp_uri;
 
-  const data = await res.json();
-  totpUri = data.data.totp_uri;
+        // 🔥 Convert URI → QR image
+        const qrDataUrl = await QRCode.toDataURL(totpUri, { width: 200 });
 
-  // 🔥 Convert URI → QR image
-  const qrDataUrl = await QRCode.toDataURL(totpUri, { width: 200 });
+        console.log(qrDataUrl);
 
-  console.log(qrDataUrl)
+        localStorage.setItem("QRData", qrDataUrl);
 
-  localStorage.setItem("QRData", qrDataUrl)
+        document.getElementById("qrImage").src = qrDataUrl;
+      }
 
-  document.getElementById("qrImage").src = qrDataUrl;
-}
+      async function enable2FA() {
+        const token = document.getElementById("token").value;
 
-async function enable2FA() {
-  const token = document.getElementById("token").value;
-
-  const res = await fetch("http://127.0.0.1:8000/api/v1/accounts/2fa/enable/", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzcwMTk2Nzk2LCJpYXQiOjE3NzAxMTAzOTYsImp0aSI6ImQyMjFiZTdkMjU3YTQwZmJhZjZjNzk5NjZhMTJjNzM0IiwidXNlcl9pZCI6ImIzZTYxNGUxLTA5ZTktNGU3ZS05NGQxLTk4YmRlZTI3NDg0MSJ9.Ma-XBgVLaSLcwX0MkobnI34l8wXRrT9s9_rTYse6gyM"
-    },
-    body: JSON.stringify({ token })
-  });
-
-  alert((await res.json()).message);
-}
-</script>
-
-</body>
+        const res = await fetch(
+          "http://127.0.0.1:8000/api/v1/accounts/me/2fa/enable/",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization:
+                "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzcwMzk0NTY4LCJpYXQiOjE3NzAzMDgxNjgsImp0aSI6ImFiMTY4YzA2NzA1MDRhOTFhMDYzZDVkNjRhZTgxOTExIiwidXNlcl9pZCI6ImIzZTYxNGUxLTA5ZTktNGU3ZS05NGQxLTk4YmRlZTI3NDg0MSJ9.UOz3QP6IzC2ZBKtW6UY_Uose9nxk3NgFJVd0CHPQBgY",
+            },
+            body: JSON.stringify({ token }),
+          }
+        );
+        alert((await res.json()).message);
+      }
+    </script>
+  </body>
 </html>

@@ -6,84 +6,64 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 
 # =============================================================
-# Core Utilities & Exceptions
+# Core Exceptions
 # =============================================================
-from core.exceptions.base import (
+from core.exceptions import (
     InactiveUserException,
     ValidationException,
     InternalServerException,
-    ServiceException,
 )
 
 # =============================================================
 # Base Service
 # =============================================================
-from accounts.services.base import BaseService
+from accounts.services import BaseService
 
 # =============================================================
 # Change Password Service
 # =============================================================
 class ChangePasswordService(BaseService):
-    """
-    Service layer for changing user passwords.
-
-    Responsibilities:
-    1. Validate that the user is active.
-    2. Validate new password strength according to Django rules.
-    3. Atomically update the password in the database.
-    4. Log all relevant events for traceability.
-
-    Design Notes:
-    - Uses transaction.atomic() for DB consistency.
-    - Raises clear exceptions for inactive users, weak passwords, or internal errors.
-    """
 
     @classmethod
     def change_password(cls, user, new_password: str) -> None:
-        """
-        Change the password for a given user.
-
-        Args:
-            user: Authenticated User instance
-            new_password (str): New password to set
-
-        Raises:
-            InactiveUserException: If user account is inactive
-            ValidationException: If new password fails complexity validation
-            InternalServerException: For unexpected failures during update
-        """
-        # 1. Ensure user is active
-        if not user.is_active:
-            cls.logger().warning(
-                "Inactive user attempted password change",
-                extra={"user_id": user.id},
-            )
-            raise InactiveUserException("User account is inactive.")
-
-        # 2. Validate password strength
         try:
-            validate_password(new_password, user=user)
-        except DjangoValidationError as exc:
-            cls.logger().warning(
-                "Password validation failed",
-                extra={"user_id": user.id},
-            )
-            raise ValidationException(exc.messages[0]) from exc
+            # Step 1 — Ensure user account is active
+            if not user.is_active:
+                cls.logger().warning(
+                    "Inactive user attempted password change",
+                    extra={"user_id": user.id},
+                )
+                raise InactiveUserException("User account is inactive.")
 
-        # 3. Atomically update password
-        try:
+            # Step 2 — Validate password strength
+            try:
+                validate_password(new_password, user=user)
+            except DjangoValidationError as exc:
+                cls.logger().warning(
+                    "Password validation failed during change",
+                    extra={"user_id": user.id},
+                )
+                raise ValidationException(exc.messages)
+
+            # Step 3 — Atomically update password
             with transaction.atomic():
                 user.set_password(new_password)
                 user.save(update_fields=["password"])
 
+            # Step 4 — Log success
             cls.logger().info(
-                "User password changed successfully",
+                "Password changed successfully",
                 extra={"user_id": user.id},
             )
 
+        except (InactiveUserException, ValidationException):
+            # Step 5 — Re-raise known business exceptions
+            raise
+
         except Exception as exc:
+            # Step 6 — Log unexpected failure
             cls.logger().error(
-                "Unexpected error during password change",
+                "Password change failed",
                 exc_info=True,
                 extra={"user_id": user.id},
             )

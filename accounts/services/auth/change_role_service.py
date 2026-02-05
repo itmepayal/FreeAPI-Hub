@@ -1,6 +1,7 @@
 # =============================================================
 # Django
 # =============================================================
+from django.db import transaction
 from django.core.exceptions import ObjectDoesNotExist
 
 # =============================================================
@@ -9,9 +10,9 @@ from django.core.exceptions import ObjectDoesNotExist
 from accounts.models import User
 
 # =============================================================
-# Core Utilities & Exceptions
+# Core Exceptions
 # =============================================================
-from core.exceptions.base import (
+from core.exceptions import (
     InactiveUserException,
     PermissionDeniedException,
     ResourceNotFoundException,
@@ -23,107 +24,75 @@ from core.exceptions.base import (
 # =============================================================
 # Base Service
 # =============================================================
-from accounts.services.base import BaseService
+from accounts.services import BaseService
+
 
 # =============================================================
-# ChangeRole Service
+# Change Role Service
 # =============================================================
 class ChangeRoleService(BaseService):
-    """
-    Service layer to handle changing a user's role within the system.
-
-    Responsibilities:
-    1. Validate actor permissions (e.g., prevent self-role change).
-    2. Fetch target user from the database.
-    3. Check user status and constraints (inactive, SUPERADMIN protection).
-    4. Update user's role in a safe manner.
-    5. Log all relevant actions for traceability.
-
-    Design Notes:
-    - Prevents privilege escalation or self-modification of roles.
-    - Preserves known service exceptions; wraps unexpected errors in InternalServerException.
-    """
 
     @classmethod
     def execute(cls, actor: User, user_id, new_role: str) -> dict:
-        """
-        Perform role change operation for a target user.
-
-        Steps:
-        1. Prevent actor from changing their own role.
-        2. Retrieve target user; raise error if not found.
-        3. Validate target user's status and role constraints.
-        4. Update role and persist changes.
-        5. Log success; handle unexpected exceptions.
-
-        Args:
-            actor (User): User performing the role change.
-            user_id: ID of the target user whose role is to be changed.
-            new_role (str): New role to assign to the target user.
-
-        Returns:
-            dict: Contains updated user object, success flag, and message.
-
-        Raises:
-            PermissionDeniedException: If actor tries to change their own role.
-            ResourceNotFoundException: If target user does not exist.
-            InactiveUserException: If target user is inactive.
-            OperationNotAllowedException: If modifying a SUPERADMIN is attempted.
-            InternalServerException: For unexpected errors during role update.
-        """
-        # 1. Prevent self-role change
-        if str(actor.id) == str(user_id):
-            raise PermissionDeniedException(
-                "SuperAdmin cannot change their own role."
-            )
-
         try:
-            # 2. Fetch target user
-            try:
-                user = User.objects.get(id=user_id)
-            except ObjectDoesNotExist:
-                raise ResourceNotFoundException(
-                    f"User with ID {user_id} not found."
+            # Step 1 — Prevent self role modification
+            if str(actor.id) == str(user_id):
+                raise PermissionDeniedException(
+                    "You cannot change your own role."
                 )
 
-            # 3. Check user status
-            if not user.is_active:
-                raise InactiveUserException(
-                    f"User {user.email} is inactive."
+            # Step 2 — Execute role change atomically
+            with transaction.atomic():
+
+                # Step 3 — Fetch target user
+                try:
+                    user = User.objects.get(id=user_id)
+                except ObjectDoesNotExist:
+                    raise ResourceNotFoundException(
+                        f"User with ID {user_id} not found."
+                    )
+
+                # Step 4 — Validate user status
+                if not user.is_active:
+                    raise InactiveUserException(
+                        f"User {user.email} is inactive."
+                    )
+
+                # Step 5 — Prevent modifying another SUPERADMIN
+                if user.role == "SUPERADMIN":
+                    raise OperationNotAllowedException(
+                        "Cannot change role of another SuperAdmin."
+                    )
+
+                # Step 6 — Update role
+                user.role = new_role
+                user.save(update_fields=["role"])
+
+                # Step 7 — Log success
+                cls.logger().info(
+                    "User role updated successfully",
+                    extra={
+                        "actor_id": actor.id,
+                        "target_user_id": user.id,
+                        "new_role": new_role,
+                    },
                 )
 
-            # 4. Prevent modifying another SUPERADMIN
-            if user.role == "SUPERADMIN":
-                raise OperationNotAllowedException(
-                    "Cannot change role of another SuperAdmin."
-                )
-
-            # 5. Update role
-            user.role = new_role
-            user.save(update_fields=["role"])
-
-            cls.logger().info(
-                "User role changed successfully",
-                extra={
-                    "actor_id": actor.id,
-                    "target_user_id": user.id,
-                    "new_role": new_role,
-                },
-            )
-
+            # Step 8 — Return standardized response
             return {
-                "user": user,
-                "message": f"Role of {user.email} changed successfully.",
                 "success": True,
+                "message": f"Role of {user.email} changed successfully.",
+                "user": user,
             }
 
         except ServiceException:
-            # Preserve known service errors
+            # Step 9 — Re-raise known business exceptions
             raise
 
         except Exception as exc:
+            # Step 10 — Log unexpected failures
             cls.logger().error(
-                "Failed to change user role",
+                "Unexpected error while changing user role",
                 exc_info=True,
                 extra={
                     "actor_id": actor.id,

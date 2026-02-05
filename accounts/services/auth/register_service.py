@@ -1,163 +1,88 @@
 # =============================================================
-# Standard Library
-# =============================================================
-import secrets  
-import hashlib  
-from datetime import timedelta 
-
-# =============================================================
 # Django
 # =============================================================
 from django.conf import settings
-from django.utils import timezone
 from django.db import transaction
 
 # =============================================================
 # Local Models
 # =============================================================
-from accounts.models import User, UserSecurity
+from accounts.models import User, UserSecurity, UserPresence
 
 # =============================================================
-# Core Exceptions
+# Core Utilities
 # =============================================================
-from core.exceptions.base import InternalServerException
-
-# =============================================================
-# Email Service
-# =============================================================
-from core.email.services import send_email 
+from core.exceptions import InternalServerException
+from core.email import send_email
+from core.utils.helpers import get_client_ip
 
 # =============================================================
 # Base Service
 # =============================================================
-from accounts.services.base import BaseService
-
+from accounts.services import BaseService
 
 # =============================================================
-# Register Service
+# Registration Service
 # =============================================================
 class RegisterService(BaseService):
-    """
-    Service layer for handling user registration.
-
-    Responsibilities:
-    1. Create a new user in the database.
-    2. Generate a secure email verification token and store its hash.
-    3. Send verification email to the user.
-    4. Log all relevant actions for traceability.
-
-    Design Notes:
-    - Uses transaction.atomic() to ensure DB consistency.
-    - Email sending occurs outside the transaction to avoid rollback if email fails.
-    - Any unexpected errors are wrapped in InternalServerException.
-    """
 
     @classmethod
     def register_user(cls, validated_data: dict, request) -> User:
-        """
-        Main method to register a user and trigger email verification.
-
-        Steps:
-        1. Create user in DB.
-        2. Generate email verification token and save hash.
-        3. Send verification email to the user.
-        4. Return the created User object.
-
-        Args:
-            validated_data (dict): Cleaned user input data from serializer.
-            request: DRF request object (used to log client IP).
-
-        Returns:
-            User: Newly created user instance.
-
-        Raises:
-            InternalServerException: If user creation or token generation fails.
-        """
         try:
+            # Step 1 — Start atomic transaction for registration flow
             with transaction.atomic():
-                # 1. Create the user
+
+                # Step 2 — Create user using custom manager logic
                 user = User.objects.create_user(**validated_data)
 
+                # Step 3 — Ensure security record exists for tokens & auth metadata
+                security, _ = UserSecurity.objects.get_or_create(user=user)
+
+                # Step 4 — Ensure presence record exists for online/offline tracking
+                UserPresence.objects.get_or_create(user=user)
+
+                # Step 5 — Generate email verification token (stored hashed in DB)
+                raw_token = security.generate_email_verification_token()
+
+                # Step 6 — Log successful registration event
                 cls.logger().info(
                     "New user registered",
                     extra={
                         "user_id": user.id,
                         "email": user.email,
-                        "ip": cls.get_client_ip(request),
+                        "ip": get_client_ip(request),
                     },
                 )
 
-                # 2. Generate email verification token
-                raw_token = cls.create_email_verification(user)
+            # Step 7 — Send verification email only after DB commit succeeds
+            transaction.on_commit(
+                lambda: cls.send_verification_email(user, raw_token)
+            )
 
-            # 3. Send verification email AFTER successful commit
-            try:
-                cls.send_verification_email(user, raw_token)
-            except Exception as exc:
-                # Only log a warning; user is already created
-                cls.logger().warning(
-                    "Failed to send verification email",
-                    exc_info=True,
-                    extra={"user_id": user.id, "email": user.email},
-                )
-
-            # 4. Return user object
+            # Step 8 — Return created user instance
             return user
-        
-        except ValidationException:
-            raise
 
         except Exception as exc:
+            # Step 9 — Log failure with context
             cls.logger().error(
                 "User registration failed",
                 exc_info=True,
                 extra={"email": validated_data.get("email")},
             )
+
+            # Step 10 — Raise controlled internal error
             raise InternalServerException("User registration failed.") from exc
 
-    @classmethod
-    def create_email_verification(cls, user) -> str:
-        """
-        Generate a secure email verification token and store its hash in the DB.
-
-        Steps:
-        1. Generate a random 20-byte hex token.
-        2. Hash the token using SHA-256 for secure storage.
-        3. Set an expiry timestamp based on settings.
-        4. Save the hashed token and expiry in UserSecurity model.
-
-        Args:
-            user (User): The user for whom the token is generated.
-
-        Returns:
-            str: The raw (unhashed) token to send via email.
-        """
-        raw_token = secrets.token_hex(20)
-        hashed_token = hashlib.sha256(raw_token.encode()).hexdigest()
-        expiry = timezone.now() + timedelta(hours=settings.EMAIL_VERIFICATION_EXPIRY_HOURS)
-
-        # Create or update security record
-        security, _ = UserSecurity.objects.get_or_create(user=user)
-        security.email_verification_token = hashed_token
-        security.email_verification_expiry = expiry
-        security.save(update_fields=["email_verification_token", "email_verification_expiry"])
-
-        return raw_token
-
+    # =========================================================
+    # Email Sender
+    # =========================================================
     @classmethod
     def send_verification_email(cls, user, raw_token: str):
-        """
-        Send a verification email to the user with the provided token.
 
-        Args:
-            user (User): User object to send email to.
-            raw_token (str): Unhashed token to include in email verification link.
-
-        Raises:
-            InternalServerException: If sending email fails (logged but does not rollback user creation).
-        """
+        # Step 1 — Build frontend verification URL
         verify_link = f"{settings.FRONTEND_URL}/verify-email/{raw_token}"
 
+        # Step 2 — Send verification email via email service
         send_email(
             to_email=user.email,
             template_id=settings.SENDGRID_EMAIL_VERIFICATION_TEMPLATE_ID,
@@ -167,23 +92,8 @@ class RegisterService(BaseService):
             },
         )
 
+        # Step 3 — Log email dispatch success
         cls.logger().info(
-            "Verification email sent successfully",
-            extra={"user_id": user.id, "email": user.email},
+            "Verification email sent",
+            extra={"user_id": user.id}
         )
-
-    @staticmethod
-    def get_client_ip(request):
-        """
-        Extract the client's IP address from request headers.
-
-        Args:
-            request: DRF request object.
-
-        Returns:
-            str: Client IP address.
-        """
-        x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
-        if x_forwarded_for:
-            return x_forwarded_for.split(",")[0].strip()
-        return request.META.get("REMOTE_ADDR")

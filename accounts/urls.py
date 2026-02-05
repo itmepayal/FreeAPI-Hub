@@ -47,8 +47,8 @@ urlpatterns = [
     # ------------------------
     # User Profile
     # ------------------------
-    path('me/', CurrentUserView.as_view(), name='current-user'),
-    path('me/avatar/', UpdateAvatarView.as_view(), name='update-avatar'),
+    # path('me/', CurrentUserView.as_view(), name='current-user'),
+    # path('me/avatar/', UpdateAvatarView.as_view(), name='update-avatar'),
     
     # ------------------------
     # Google OAuth

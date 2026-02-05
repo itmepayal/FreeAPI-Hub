@@ -1,122 +1,110 @@
 # =============================================================
-# Python Standard Library
+# Django
 # =============================================================
-import secrets
-import hashlib
-from datetime import timedelta
-
-# =============================================================
-# Django Utilities
-# =============================================================
-from django.utils import timezone
-from django.db import transaction
 from django.conf import settings
+from django.db import transaction
 
 # =============================================================
-# Core Exceptions
+# Local Models
 # =============================================================
-from core.exceptions.base import (
-    PermissionDeniedException,
-    InternalServerException,
-)
+from accounts.models import User, UserSecurity
 
 # =============================================================
-# Email Service
+# Core Utilities
 # =============================================================
-from core.email.services import send_email
+from core.exceptions import PermissionDeniedException, InternalServerException
+from core.email import send_email
+from core.utils.helpers import get_client_ip
 
 # =============================================================
 # Base Service
 # =============================================================
-from accounts.services.base import BaseService
+from accounts.services import BaseService
 
 # =============================================================
-# Resend Email Service
+# Resend Email Verification Service
 # =============================================================
 class ResendEmailService(BaseService):
-    """
-    Service layer to handle resending email verification tokens.
-
-    Responsibilities:
-    1. Generate a new secure email verification token.
-    2. Update the token and expiry in the UserSecurity model.
-    3. Send verification email to the user.
-    4. Log all relevant actions for traceability.
-
-    Design Notes:
-    - Uses transaction.atomic() to ensure DB consistency.
-    - Any unexpected errors are wrapped in InternalServerException.
-    - Inactive users are not allowed to resend verification emails.
-    """
 
     @classmethod
-    def resend_verification_email(cls, user, security):
-        """
-        Generate a new email verification token and send it to the user.
-
-        Steps:
-        1. Check business rules (e.g., user must be active).
-        2. Generate secure token and save hash & expiry.
-        3. Send verification email.
-        4. Log actions and handle exceptions.
-
-        Args:
-            user (User): User instance to resend verification email to.
-            security (UserSecurity): Related security record for the user.
-
-        Raises:
-            PermissionDeniedException: If the user is inactive.
-            InternalServerException: If token update or email sending fails.
-        """
-        # Business rule check
-        if not getattr(user, "is_active", True):
-            cls.logger().warning(
-                "Inactive user attempted email verification resend",
-                extra={"user_id": user.id, "email": user.email},
-            )
-            raise PermissionDeniedException("User account is inactive.")
-
+    def resend_verification_email(cls, email: str, request) -> None:
         try:
-            # Atomic token generation & update
+            # Step 1 — Lookup user silently 
+            user = User.objects.filter(email=email).first()
+
+            if not user:
+                cls.logger().info(
+                    "Resend verification requested for non-existing email",
+                    extra={"email": email},
+                )
+                return  # Silent success response
+
+            # Step 2 — Ensure user account is active
+            if not user.is_active:
+                cls.logger().warning(
+                    "Inactive user attempted email verification resend",
+                    extra={"user_id": user.id, "email": user.email},
+                )
+                raise PermissionDeniedException("User account is inactive.")
+
+            # Step 3 — Fetch related security record
+            security = UserSecurity.objects.get(user=user)
+
+            # Step 4 — Rotate verification token atomically
             with transaction.atomic():
-                raw_token = secrets.token_urlsafe(32)
-                hashed_token = hashlib.sha256(raw_token.encode()).hexdigest()
-                expiry = timezone.now() + timedelta(
-                    hours=settings.EMAIL_VERIFICATION_EXPIRY_HOURS
+
+                raw_token = security.generate_email_verification_token()
+
+                cls.logger().info(
+                    "Verification email resend initiated",
+                    extra={
+                        "user_id": user.id,
+                        "email": user.email,
+                        "ip": get_client_ip(request),
+                    },
                 )
 
-                security.email_verification_token = hashed_token
-                security.email_verification_expiry = expiry
-                security.save(
-                    update_fields=[
-                        "email_verification_token",
-                        "email_verification_expiry",
-                    ]
-                )
-
-            # Send verification email
-            verify_link = f"{settings.FRONTEND_URL}/verify-email/{raw_token}"
-
-            send_email(
-                to_email=user.email,
-                template_id=settings.SENDGRID_EMAIL_VERIFICATION_TEMPLATE_ID,
-                dynamic_data={
-                    "username": user.username,
-                    "verify_link": verify_link,
-                },
+            # Step 5 — Send verification email after DB commit
+            transaction.on_commit(
+                lambda: cls.send_verification_email(user, raw_token)
             )
 
-            cls.logger().info(
-                "Verification email resent successfully",
-                extra={"user_id": user.id, "email": user.email},
-            )
+        except PermissionDeniedException:
+            raise
 
         except Exception as exc:
+            # Step 6 — Log failure with context
             cls.logger().error(
-                "Failed to resend verification email",
+                "Verification email resend failed",
                 exc_info=True,
-                extra={"user_id": user.id, "email": user.email},
+                extra={"email": email},
             )
+
+            # Step 7 — Raise controlled internal error
             raise InternalServerException(
                 "Failed to resend verification email. Please try again later."
             ) from exc
+
+    # =========================================================
+    # Email Sender
+    # =========================================================
+    @classmethod
+    def send_verification_email(cls, user: User, raw_token: str) -> None:
+        # Step 1 — Build frontend verification URL
+        verify_link = f"{settings.FRONTEND_URL}/verify-email/{raw_token}"
+
+        # Step 2 — Dispatch email via email service
+        send_email(
+            to_email=user.email,
+            template_id=settings.SENDGRID_EMAIL_VERIFICATION_TEMPLATE_ID,
+            dynamic_data={
+                "username": user.username,
+                "verify_link": verify_link,
+            },
+        )
+
+        # Step 3 — Log successful email dispatch
+        cls.logger().info(
+            "Verification email resent successfully",
+            extra={"user_id": user.id},
+        )

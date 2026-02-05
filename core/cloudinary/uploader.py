@@ -1,53 +1,56 @@
 # =============================================================
 # Cloudinary Uploader Utility
 # =============================================================
-# This module provides a wrapper function to upload files to Cloudinary.
-# It centralizes the upload logic, applies default options, and handles errors.
+# Centralized helper for uploading files to Cloudinary.
+# Handles default upload options, logging, and error abstraction.
 # =============================================================
 
-import cloudinary.uploader
+# =============================================================
+# Standard Library
+# =============================================================
 import logging
 
-# Ensure Cloudinary configuration is loaded before using the uploader
-from core.cloudinary.config import cloudinary  
+# =============================================================
+# Third-Party
+# =============================================================
+import cloudinary.uploader
 
+# =============================================================
+# Core Configuration
+# =============================================================
+from core.cloudinary.config import cloudinary
+
+# =============================================================
+# Logger Configuration
+# =============================================================
 logger = logging.getLogger(__name__)
 
+# =============================================================
+# Upload Helper
+# =============================================================
 def upload_to_cloudinary(
     file,
     folder="default",
     use_filename=True,
     unique_filename=True,
-    overwrite=False
+    overwrite=False,
 ):
-    """
-    Upload a file to Cloudinary and return its secure URL.
-
-    Args:
-        file: File object, path, or file-like object to upload.
-        folder (str): Cloudinary folder to store the file in (default: "default").
-        use_filename (bool): Use the original filename for the uploaded file.
-        unique_filename (bool): Ensure filename uniqueness by appending a random string.
-        overwrite (bool): Overwrite existing file with the same public_id if True.
-
-    Returns:
-        str: Secure HTTPS URL of the uploaded file.
-
-    Raises:
-        RuntimeError: If the upload fails for any reason. The original exception
-                        is logged for debugging.
-    """
     try:
+        # Step 1 — Upload file to Cloudinary with provided options
         result = cloudinary.uploader.upload(
             file,
             folder=folder,
             use_filename=use_filename,
             unique_filename=unique_filename,
-            overwrite=overwrite
+            overwrite=overwrite,
         )
+
+        # Step 2 — Return secure HTTPS URL of uploaded file
         return result["secure_url"]
 
-    except Exception as e:
+    except Exception as exc:
+        # Step 3 — Log original exception for debugging
         logger.exception("Cloudinary upload failed")
-        # Re-raise a clean RuntimeError for service-level handling
-        raise RuntimeError("Cloudinary upload failed") from e
+
+        # Step 4 — Raise clean service-level error
+        raise RuntimeError("Cloudinary upload failed") from exc

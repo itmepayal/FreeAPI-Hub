@@ -22,7 +22,8 @@ class User(BaseModel, AbstractBaseUser, PermissionsMixin):
     role = models.CharField(
         max_length=50, 
         choices=ROLE_CHOICES, 
-        default=ROLE_USER
+        default=ROLE_USER,
+        db_index=True
     )
 
     # ----------------------

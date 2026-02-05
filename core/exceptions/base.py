@@ -7,7 +7,6 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-
 # =============================================================
 # Base Exception
 # =============================================================
@@ -38,7 +37,6 @@ class InvalidTokenException(ServiceException):
     default_detail = "Token is invalid or expired."
     default_code = "invalid_token"
     status_code = status.HTTP_401_UNAUTHORIZED
-
 
 class AuthenticationRequiredException(ServiceException):
     default_detail = "Authentication is required to access this resource."

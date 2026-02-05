@@ -5,9 +5,9 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.exceptions import TokenError
 
 # =============================================================
-# Core Utilities & Exceptions
+# Core Exceptions
 # =============================================================
-from core.exceptions.base import (
+from core.exceptions import (
     InvalidTokenException,
     InternalServerException,
     ServiceException,
@@ -16,72 +16,49 @@ from core.exceptions.base import (
 # =============================================================
 # Base Service
 # =============================================================
-from accounts.services.base import BaseService
+from accounts.services import BaseService
 
 # =============================================================
-# RefreshToken Service
+# Refresh Token Service
 # =============================================================
 class RefreshTokenService(BaseService):
-    """
-    Service layer for handling JWT refresh token operations.
 
-    Responsibilities:
-    1. Validate a given refresh token.
-    2. Generate a new access token based on the valid refresh token.
-    3. Log all relevant actions for traceability.
-
-    Design Notes:
-    - Exceptions are categorized and logged at appropriate levels.
-    - Preserves consistent behavior with other auth service classes.
-    """
     @classmethod
     def refresh_access_token(cls, refresh_token: str) -> str:
-        """
-        Generate a new access token from a valid refresh token.
-
-        Steps:
-        1. Parse and validate the provided refresh token.
-        2. Create a new access token.
-        3. Log success or handle errors.
-
-        Args:
-            refresh_token (str): JWT refresh token
-
-        Returns:
-            str: New access token
-
-        Raises:
-            InvalidTokenException: If the refresh token is invalid or expired
-            InternalServerException: If an unexpected error occurs
-        """
         try:
-            # 1. Parse & validate refresh token
+
+            # Step 1 — Parse and validate refresh token
             token = RefreshToken(refresh_token)
 
-            # 2. Generate new access token
+            # Step 2 — Generate new access token
             new_access_token = str(token.access_token)
 
-            # 3. Log successful refresh
+            # Step 3 — Log successful token refresh
             cls.logger().info(
-                "Access token refreshed successfully",
+                "Access token refreshed successfully"
             )
 
+            # Step 4 — Return new access token
             return new_access_token
 
+        # Step 5 — Handle invalid or expired token
         except TokenError as exc:
             cls.logger().warning(
                 "Invalid or expired refresh token",
                 exc_info=True,
             )
-            raise InvalidTokenException("Invalid or expired refresh token.") from exc
+            raise InvalidTokenException(
+                "Invalid or expired refresh token."
+            ) from exc
 
+        # Step 6 — Re-raise known service exceptions
         except ServiceException:
-            # Preserve already-classified service errors
             raise
 
+        # Step 7 — Handle unexpected failures
         except Exception as exc:
             cls.logger().error(
-                "Unexpected error while refreshing access token",
+                "Unexpected error while refreshing token",
                 exc_info=True,
             )
             raise InternalServerException(

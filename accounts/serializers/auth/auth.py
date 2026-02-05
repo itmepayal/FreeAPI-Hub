@@ -91,7 +91,6 @@ class LoginSerializer(serializers.Serializer):
         help_text="User password"
     )
 
-
 class RefreshTokenSerializer(serializers.Serializer):
     """
     Serializer used to refresh or revoke authentication tokens.

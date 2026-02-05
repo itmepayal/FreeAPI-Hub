@@ -1,14 +1,28 @@
-# core/email/services.py
-
-from sendgrid import SendGridAPIClient
-from sendgrid.helpers.mail import Mail
-from django.conf import settings
+# =============================================================
+# Standard Library
+# =============================================================
 import logging
 
-# Initialize logger for this module
+# =============================================================
+# Third-Party
+# =============================================================
+from sendgrid import SendGridAPIClient
+from sendgrid.helpers.mail import Mail
+
+# =============================================================
+# Django Settings
+# =============================================================
+from django.conf import settings
+
+# =============================================================
+# Logger
+# =============================================================
 logger = logging.getLogger(__name__)
 
 
+# =============================================================
+# SendGrid Email Sender
+# =============================================================
 def send_email(
     *,
     to_email: str,
@@ -16,60 +30,30 @@ def send_email(
     dynamic_data: dict,
     subject: str | None = None,
 ):
-    """
-    Send an email using SendGrid Dynamic Templates.
-
-    Args:
-        to_email (str): Recipient email address.
-        template_id (str): SendGrid dynamic template ID.
-        dynamic_data (dict): Dictionary containing template variables.
-        subject (str, optional): Optional email subject. Defaults to None.
-
-    Returns:
-        sendgrid.Response: SendGrid API response object.
-
-    Raises:
-        RuntimeError: If sending the email fails for any reason.
-    """
     try:
-        # ------------------------------
-        # Create the Mail object
-        # ------------------------------
+        # Step 1 — Create Mail object
         mail = Mail(
-            from_email=settings.EMAIL_FROM,  # Sender email from Django settings
-            to_emails=to_email,              # Recipient email
+            from_email=settings.EMAIL_FROM,  
+            to_emails=to_email,          
         )
 
-        # ------------------------------
-        # Optional: Set email subject
-        # ------------------------------
+        # Step 2 — Optionally set email subject
         if subject:
             mail.subject = subject
 
-        # ------------------------------
-        # Set the dynamic template ID
-        # This tells SendGrid which template to render
-        # ------------------------------
+        # Step 3 — Set dynamic template ID
         mail.template_id = template_id
 
-        # ------------------------------
-        # Pass dynamic template data
-        # Key-value pairs that replace template placeholders
-        # ------------------------------
+        # Step 4 — Provide dynamic template data
         mail.dynamic_template_data = dynamic_data
 
-        # ------------------------------
-        # Initialize SendGrid client
-        # ------------------------------
+        # Step 5 — Initialize SendGrid client
         sg = SendGridAPIClient(settings.SENDGRID_API_KEY)
 
-        # Send the email
+        # Step 6 — Send the email
         response = sg.send(mail)
 
-        # ------------------------------
-        # Log any non-successful responses
-        # 200 or 202 indicates success
-        # ------------------------------
+        # Step 7 — Log non-success responses
         if response.status_code not in (200, 202):
             logger.error(
                 "SendGrid failed: %s %s",
@@ -77,18 +61,19 @@ def send_email(
                 response.body.decode() if hasattr(response.body, "decode") else response.body,
             )
 
-        # Return SendGrid response object
+        # Step 8 — Return SendGrid response object
         return response
 
     except Exception as e:
-        # ------------------------------
-        # Log the error body if available
-        # ------------------------------
+        # Step 9 — Log the error body if available
         if hasattr(e, "body") and e.body:
-            logger.error("SendGrid error body: %s", e.body.decode() if hasattr(e.body, "decode") else e.body)
-        
-        # Log full exception with traceback
+            logger.error(
+                "SendGrid error body: %s",
+                e.body.decode() if hasattr(e.body, "decode") else e.body
+            )
+
+        # Step 10 — Log full exception traceback
         logger.exception("SendGrid template email error")
 
-        # Raise a clear RuntimeError for service layer handling
+        # Step 11 — Raise clean RuntimeError for service layer
         raise RuntimeError("Failed to send email via SendGrid") from e

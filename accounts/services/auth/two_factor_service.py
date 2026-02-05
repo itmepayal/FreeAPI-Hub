@@ -7,7 +7,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 # =============================================================
 # Core Exceptions
 # =============================================================
-from core.exceptions.base import (
+from core.exceptions import (
     ValidationException,
     AuthenticationFailedException,
 )
@@ -15,37 +15,38 @@ from core.exceptions.base import (
 # =============================================================
 # Base Service
 # =============================================================
-from accounts.services.base import BaseService
+from accounts.services import BaseService
+
 
 # =============================================================
 # Two-Factor Authentication Service
 # =============================================================
 class TwoFactorService(BaseService):
-    """
-    Handles Two-Factor Authentication (TOTP) setup, enable, disable, and verification.
-    """
 
     @classmethod
     def setup_2fa(cls, user) -> dict:
-        """
-        Generate a TOTP secret and URI for QR code scanning.
-        """
+        # Step 1 — Fetch user security profile
         security = user.security
 
+        # Step 2 — Prevent re-enabling 2FA if already enabled
         if security.is_2fa_enabled:
             raise ValidationException("2FA is already enabled.")
 
+        # Step 3 — Generate and persist TOTP secret atomically
         with transaction.atomic():
             secret = security.generate_totp_secret()
             security.save(update_fields=["totp_secret"])
 
+        # Step 4 — Build TOTP provisioning URI
         uri = security.get_totp_uri()
 
+        # Step 5 — Log 2FA setup initiation
         cls.logger().info(
             "2FA setup initiated",
             extra={"user_id": user.id},
         )
 
+        # Step 6 — Return secret and URI for QR generation
         return {
             "totp_secret": secret,
             "totp_uri": uri,
@@ -53,14 +54,14 @@ class TwoFactorService(BaseService):
 
     @classmethod
     def enable_2fa(cls, user, token: str) -> dict:
-        """
-        Enable 2FA after validating TOTP token.
-        """
+        # Step 1 — Fetch user security profile
         security = user.security
 
+        # Step 2 — Prevent enabling 2FA if already enabled
         if security.is_2fa_enabled:
             raise ValidationException("2FA is already enabled.")
 
+        # Step 3 — Validate provided TOTP token
         if not security.verify_totp(token):
             cls.logger().warning(
                 "Invalid OTP during 2FA enable",
@@ -68,15 +69,18 @@ class TwoFactorService(BaseService):
             )
             raise AuthenticationFailedException("Invalid OTP.")
 
+        # Step 4 — Enable 2FA atomically
         with transaction.atomic():
             security.is_2fa_enabled = True
             security.save(update_fields=["is_2fa_enabled"])
 
+        # Step 5 — Log successful 2FA enablement
         cls.logger().info(
             "2FA enabled successfully",
             extra={"user_id": user.id},
         )
 
+        # Step 6 — Return success response
         return {
             "success": True,
             "message": "2FA enabled successfully.",
@@ -84,14 +88,14 @@ class TwoFactorService(BaseService):
 
     @classmethod
     def disable_2fa(cls, user, token: str) -> dict:
-        """
-        Disable 2FA after validating TOTP token.
-        """
+        # Step 1 — Fetch user security profile
         security = user.security
 
+        # Step 2 — Ensure 2FA is currently enabled
         if not security.is_2fa_enabled:
             raise ValidationException("2FA is not enabled.")
 
+        # Step 3 — Validate provided TOTP token
         if not security.verify_totp(token):
             cls.logger().warning(
                 "Invalid OTP during 2FA disable",
@@ -99,16 +103,19 @@ class TwoFactorService(BaseService):
             )
             raise AuthenticationFailedException("Invalid OTP.")
 
+        # Step 4 — Disable 2FA and clear TOTP secret atomically
         with transaction.atomic():
             security.is_2fa_enabled = False
             security.totp_secret = None
             security.save(update_fields=["is_2fa_enabled", "totp_secret"])
 
+        # Step 5 — Log successful 2FA disablement
         cls.logger().info(
             "2FA disabled successfully",
             extra={"user_id": user.id},
         )
 
+        # Step 6 — Return success response
         return {
             "success": True,
             "message": "2FA disabled successfully.",
@@ -116,14 +123,14 @@ class TwoFactorService(BaseService):
 
     @classmethod
     def verify_2fa_and_issue_tokens(cls, user, token: str) -> dict:
-        """
-        Verify TOTP token and issue JWT tokens.
-        """
+        # Step 1 — Fetch user security profile
         security = user.security
 
+        # Step 2 — Ensure 2FA is enabled for the account
         if not security.is_2fa_enabled:
             raise ValidationException("2FA is not enabled for this account.")
 
+        # Step 3 — Validate provided TOTP token
         if not security.verify_totp(token):
             cls.logger().warning(
                 "Invalid OTP during 2FA login",
@@ -131,13 +138,16 @@ class TwoFactorService(BaseService):
             )
             raise AuthenticationFailedException("Invalid OTP.")
 
+        # Step 4 — Issue JWT refresh and access tokens
         refresh = RefreshToken.for_user(user)
 
+        # Step 5 — Log successful 2FA verification
         cls.logger().info(
             "2FA verification successful",
             extra={"user_id": user.id},
         )
 
+        # Step 6 — Return issued tokens
         return {
             "access": str(refresh.access_token),
             "refresh": str(refresh),

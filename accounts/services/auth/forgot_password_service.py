@@ -18,10 +18,9 @@ from django.conf import settings
 from accounts.models import User, UserSecurity
 
 # =============================================================
-# Core Utilities & Exceptions
+# Core Exceptions
 # =============================================================
-from core.exceptions.base import (
-    ResourceNotFoundException,
+from core.exceptions import (
     InternalServerException,
     ServiceException,
 )
@@ -29,98 +28,100 @@ from core.exceptions.base import (
 # =============================================================
 # Core Services
 # =============================================================
-from core.email.services import send_email
+from core.email import send_email
+from core.utils.helpers import get_client_ip
 
 # =============================================================
 # Base Service
 # =============================================================
-from accounts.services.base import BaseService
+from accounts.services import BaseService
 
 # =============================================================
 # Forgot Password Service
 # =============================================================
 class ForgotPasswordService(BaseService):
-    """
-    Service layer to handle "forgot password" functionality.
-
-    Responsibilities:
-    1. Generate a secure password reset token.
-    2. Persist hashed token and expiry in UserSecurity model.
-    3. Send password reset email with token link.
-    4. Log all relevant actions for traceability.
-
-    Design Notes:
-    - Uses transaction.atomic() to ensure DB consistency.
-    - Does NOT reveal if the user exists to prevent enumeration attacks.
-    - Any unexpected errors are wrapped in InternalServerException.
-    """
 
     @classmethod
-    def send_reset_email(cls, email: str, request_ip: str) -> None:
-        """
-        Handle password reset token generation and email sending.
-
-        Steps:
-        1. Fetch user by email (if exists).
-        2. Create a secure token and hash it.
-        3. Save hashed token and expiry in DB atomically.
-        4. Send reset email to user with the raw token link.
-
-        Args:
-            email (str): Email address provided in reset request.
-            request_ip (str): IP address for logging purposes.
-
-        Raises:
-            InternalServerException: If DB operation or email sending fails.
-        """
+    def send_reset_email(cls, email: str, request) -> None:
         try:
-            # Fetch user; silently ignore if not found
+            # Step 1 — Lookup user 
             user = User.objects.filter(email=email).first()
+
             if not user:
                 cls.logger().info(
                     "Password reset requested for non-existent email",
-                    extra={"email": email, "ip": request_ip},
+                    extra={
+                        "email": email,
+                        "ip": get_client_ip(request),
+                    },
                 )
-                return  # Silently succeed to prevent enumeration
+                return
 
+            # Step 2 — Start atomic transaction
             with transaction.atomic():
-                security, _ = UserSecurity.objects.select_for_update().get_or_create(user=user)
 
-                # 1. Generate secure token
-                raw_token = secrets.token_urlsafe(32)
-                hashed_token = hashlib.sha256(raw_token.encode()).hexdigest()
-
-                # 2. Set token & expiry
-                security.forgot_password_token = hashed_token
-                security.forgot_password_expiry = timezone.now() + timedelta(
-                    hours=settings.PASSWORD_RESET_EXPIRY_HOURS
-                )
-                security.save(
-                    update_fields=["forgot_password_token", "forgot_password_expiry"]
+                # Step 3 — Lock security row
+                security, _ = (
+                    UserSecurity.objects
+                    .select_for_update()
+                    .get_or_create(user=user)
                 )
 
-            # 3. Send reset email
-            reset_link = f"{settings.FRONTEND_URL}/reset-password/{raw_token}"
-            send_email(
-                to_email=user.email,
-                template_id=settings.SENDGRID_PASSWORD_RESET_TEMPLATE_ID,
-                dynamic_data={
-                    "username": user.username,
-                    "reset_link": reset_link,
-                },
+                # Step 4 — Generate reset token (hashed in DB)
+                raw_token = security.generate_forgot_password()
+
+                # Step 5 — Log reset request
+                cls.logger().info(
+                    "Password reset token generated",
+                    extra={
+                        "user_id": user.id,
+                        "email": user.email,
+                        "ip": get_client_ip(request),
+                    },
+                )
+
+            # Step 6 — Send email ONLY after successful commit
+            transaction.on_commit(
+                lambda: cls.send_password_reset_email(user, raw_token)
             )
 
-            cls.logger().info(
-                "Password reset email sent successfully",
-                extra={"user_id": user.id, "ip": request_ip},
-            )
+        except ServiceException:
+            raise
 
         except Exception as exc:
             cls.logger().error(
-                "Failed to generate/send password reset email",
+                "Password reset flow failed",
                 exc_info=True,
-                extra={"email": email, "ip": request_ip},
+                extra={"email": email},
             )
             raise InternalServerException(
-                "Failed to generate or send password reset email. Please try again later."
+                "Failed to process password reset request."
             ) from exc
+
+    # =========================================================
+    # Email Sender
+    # =========================================================
+    @classmethod
+    def send_password_reset_email(cls, user: User, raw_token: str) -> None:
+
+        # Step 1 — Build frontend reset URL
+        reset_link = (
+            f"{settings.FRONTEND_URL}/reset-password/{raw_token}"
+        )
+
+        # Step 2 — Send reset email
+        send_email(
+            to_email=user.email,
+            template_id=settings.SENDGRID_PASSWORD_RESET_TEMPLATE_ID,
+            dynamic_data={
+                "username": user.username,
+                "reset_link": reset_link,
+            },
+        )
+
+        # Step 3 — Log email success
+        cls.logger().info(
+            "Password reset email sent",
+            extra={"user_id": user.id},
+        )
+        
