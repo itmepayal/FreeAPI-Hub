@@ -7,7 +7,6 @@ from rest_framework import generics, permissions, status
 # Local App Serializers & Services
 # =============================================================
 from accounts.serializers.auth.auth import RefreshTokenSerializer
-from accounts.swagger.auth import logout_schema
 from accounts.services.auth import LogoutService
 
 # =============================================================
@@ -19,7 +18,6 @@ from core.utils.responses import api_response
 # =============================================================
 # Logout View
 # =============================================================
-@logout_schema
 class LogoutView(generics.GenericAPIView):
     serializer_class = RefreshTokenSerializer
     permission_classes = [permissions.IsAuthenticated]

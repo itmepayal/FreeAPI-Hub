@@ -21,7 +21,6 @@ def generate_tokens(user) -> dict:
         "refresh": str(refresh),
     }
 
-
 # =============================================================
 # Custom Temporary 2FA Token Class
 # =============================================================
@@ -31,7 +30,6 @@ class TwoFAToken(AccessToken):
 
     # Step 2 — Limit token lifetime to short window
     lifetime = timedelta(minutes=5)
-
 
 # =============================================================
 # Temporary 2FA Token Generator

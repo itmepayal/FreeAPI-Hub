@@ -6,14 +6,14 @@ from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
 from accounts.managers import UserManager
 
 from core.models.base import BaseModel
-from core.constants.roles import ROLE_CHOICES, ROLE_USER
+from core.constants import ROLE_CHOICES, ROLE_USER
 
 class User(BaseModel, AbstractBaseUser, PermissionsMixin):
     # ----------------------
     # Basic User Info
     # ----------------------
     email = models.EmailField(unique=True, db_index=True)
-    username = models.CharField(max_length=150, blank=True, null=True)
+    username = models.CharField(max_length=150)
     avatar = models.URLField(blank=True, null=True)
 
     # ----------------------

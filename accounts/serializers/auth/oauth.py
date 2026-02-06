@@ -1,18 +1,30 @@
+# =============================================================
+# Django REST Framework
+# =============================================================
 from rest_framework import serializers
+
 
 # =============================================================
 # OAuth Callback Serializer
 # =============================================================
 class OAuthCallbackSerializer(serializers.Serializer):
     """
-    Serializer for handling OAuth callback requests.
+    Handles OAuth provider callback payload.
 
-    Attributes:
-        code (str): The authorization code returned by the OAuth provider.
+    Use Case:
+    - Google OAuth callback
+    - GitHub OAuth callback
+    - Third-party auth exchanges
+
+    Validates authorization code returned by provider.
     """
+
+    # ---------------------------------------------------------
+    # Authorization Code
+    # ---------------------------------------------------------
     code = serializers.CharField(
         required=True,
-        help_text="Authorization code returned by OAuth provider (Google/GitHub)."
+        help_text="Authorization code returned by OAuth provider (Google/GitHub).",
     )
 
 
@@ -21,7 +33,14 @@ class OAuthCallbackSerializer(serializers.Serializer):
 # =============================================================
 class EmptySerializer(serializers.Serializer):
     """
-    Serializer for endpoints that do not require any input data.
-    Can be used for simple GET endpoints that only return a URL or message.
+    Used for endpoints that accept no request body.
+
+    Common Uses:
+    - Redirect URL generators
+    - Health checks
+    - OAuth start endpoints
+    - Simple trigger endpoints
     """
+
+    # No input fields required
     pass

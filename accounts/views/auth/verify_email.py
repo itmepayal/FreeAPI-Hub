@@ -7,7 +7,6 @@ from rest_framework import generics, status, permissions
 # Local App
 # =============================================================
 from accounts.serializers.auth import VerifyEmailSerializer
-from accounts.swagger.auth import verify_email_schema
 from accounts.services.auth import VerifyEmailService
 
 # =============================================================
@@ -18,7 +17,6 @@ from core.utils.responses import api_response
 # =============================================================
 # VerifyEmail View
 # =============================================================
-@verify_email_schema
 class VerifyEmailView(generics.GenericAPIView):
     serializer_class = VerifyEmailSerializer
     permission_classes = [permissions.AllowAny]

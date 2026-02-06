@@ -7,7 +7,6 @@ from rest_framework import generics, status, permissions
 # Local App
 # =============================================================
 from accounts.serializers.auth import RegisterSerializer, UserSerializer
-from accounts.swagger.auth import register_schema
 from accounts.services.auth import RegisterService
 
 # =============================================================
@@ -18,7 +17,6 @@ from core.utils.responses import api_response
 # =============================================================
 # Register View
 # =============================================================
-@register_schema
 class RegisterView(generics.CreateAPIView):
     serializer_class = RegisterSerializer
     permission_classes = [permissions.AllowAny]

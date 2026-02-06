@@ -1,62 +1,74 @@
 # =============================================================
-# Django Imports
+# Django Password Validation
 # =============================================================
 from django.contrib.auth.password_validation import validate_password
 
 # =============================================================
-# Django REST Framework Imports
+# Django REST Framework
 # =============================================================
 from rest_framework import serializers
 
 # =============================================================
-# Local Application Imports
+# Local Application Models
 # =============================================================
 from accounts.models import User, UserSecurity
 
 # =============================================================
-# Registration Serializers
+# User Registration Serializer
 # =============================================================
-
 class RegisterSerializer(serializers.ModelSerializer):
     """
-    Serializer responsible for user registration.
+    Handles new user registration.
 
-    - Validates password using Django's built-in validators
-    - Hashes password before saving
-    - Creates a new User instance
+    Responsibilities:
+    - Validates password using Django validators
+    - Normalizes email
+    - Hashes password before persistence
+    - Creates User instance
     """
+
+    # ---------------------------------------------------------
+    # Input Fields
+    # ---------------------------------------------------------
     email = serializers.EmailField(
         required=True,
-        help_text="Enter a valid email address"
+        help_text="Enter a valid email address",
     )
+
     username = serializers.CharField(
         required=True,
-        help_text="Choose a unique username"
+        help_text="Choose a unique username",
     )
+
     password = serializers.CharField(
         write_only=True,
         min_length=6,
-        help_text="User password (will be hashed before saving)"
+        help_text="User password (stored as hash)",
     )
 
+    # ---------------------------------------------------------
+    # Model Configuration
+    # ---------------------------------------------------------
     class Meta:
         model = User
         fields = ["email", "username", "password"]
 
+    # ---------------------------------------------------------
+    # Field Validators
+    # ---------------------------------------------------------
     def validate_password(self, value):
-        """
-        Validate password strength using Django's password validators.
-        """
+        """Validate password strength using Django validators."""
         try:
             validate_password(value)
         except Exception as e:
             raise serializers.ValidationError(e.messages)
         return value
 
+    # ---------------------------------------------------------
+    # Create Logic
+    # ---------------------------------------------------------
     def create(self, validated_data):
-        """
-        Create and return a new user with a hashed password.
-        """
+        """Create user with normalized email and hashed password."""
         user = User(
             email=validated_data["email"].lower(),
             username=validated_data.get("username"),
@@ -69,66 +81,84 @@ class RegisterSerializer(serializers.ModelSerializer):
 # =============================================================
 # Email Verification Serializer
 # =============================================================
-
 class VerifyEmailSerializer(serializers.Serializer):
     """
-    Serializer used to verify a user's email address via token.
+    Validates email verification token.
+    Used in email activation flow.
     """
-    token = serializers.CharField(help_text="Email verification token")
+
+    token = serializers.CharField(
+        help_text="Email verification token"
+    )
 
 
 # =============================================================
-# Login & Session Serializers
+# Authentication Serializers
 # =============================================================
-
 class LoginSerializer(serializers.Serializer):
     """
-    Serializer for user login using email and password.
+    Handles credential validation for login.
     """
-    email = serializers.EmailField(help_text="Registered user email")
+
+    email = serializers.EmailField(
+        help_text="Registered user email"
+    )
+
     password = serializers.CharField(
         write_only=True,
-        help_text="User password"
+        help_text="User password",
     )
 
+
+# =============================================================
+# Token Refresh / Logout Serializer
+# =============================================================
 class RefreshTokenSerializer(serializers.Serializer):
     """
-    Serializer used to refresh or revoke authentication tokens.
+    Used for refresh-token rotation or logout invalidation.
     """
+
     refresh_token = serializers.CharField(
-        help_text="Refresh token used for logout or token rotation"
+        help_text="Refresh token string"
     )
 
 
 # =============================================================
-# Password Recovery Serializers
+# Password Recovery Serializer
 # =============================================================
-
 class ForgotPasswordSerializer(serializers.Serializer):
     """
-    Serializer to initiate the forgot-password flow.
+    Initiates forgot-password workflow.
     """
+
     email = serializers.EmailField(
-        help_text="Registered email to send reset password link"
+        help_text="Registered email address"
     )
+
 
 # =============================================================
 # Resend Email Verification Serializer
 # =============================================================
-
 class ResendEmailSerializer(serializers.Serializer):
     """
-    Serializer to resend email verification link
-    for users who have not verified their email.
+    Handles resend verification email requests.
+    Ensures:
+    - User exists
+    - Email is not already verified
     """
+
+    # ---------------------------------------------------------
+    # Input Field
+    # ---------------------------------------------------------
     email = serializers.EmailField(
-        help_text="Email address to resend verification link"
+        help_text="Email to resend verification link"
     )
 
+    # ---------------------------------------------------------
+    # Field Validation
+    # ---------------------------------------------------------
     def validate_email(self, value):
-        """
-        Ensure the user exists and email is not already verified.
-        """
+        """Validate user existence and verification status."""
         try:
             security = UserSecurity.objects.select_related("user").get(
                 user__email=value
@@ -143,16 +173,15 @@ class ResendEmailSerializer(serializers.Serializer):
                 "Email is already verified."
             )
 
-        # Store validated objects in serializer context
         self.context["user"] = security.user
         self.context["security"] = security
         return value
 
+    # ---------------------------------------------------------
+    # Object Validation
+    # ---------------------------------------------------------
     def validate(self, attrs):
-        """
-        Attach resolved user and security objects
-        to validated data for downstream use.
-        """
+        """Attach resolved objects for downstream service use."""
         attrs["user"] = self.context["user"]
         attrs["security"] = self.context["security"]
         return attrs

@@ -12,6 +12,7 @@ from accounts.models import User
 # =============================================================
 # Core Exceptions
 # =============================================================
+from core.constants import ROLE_SUPERADMIN
 from core.exceptions import (
     InactiveUserException,
     PermissionDeniedException,
@@ -59,7 +60,7 @@ class ChangeRoleService(BaseService):
                     )
 
                 # Step 5 — Prevent modifying another SUPERADMIN
-                if user.role == "SUPERADMIN":
+                if user.role == ROLE_SUPERADMIN:
                     raise OperationNotAllowedException(
                         "Cannot change role of another SuperAdmin."
                     )

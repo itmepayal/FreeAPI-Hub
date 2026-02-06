@@ -7,7 +7,6 @@ from rest_framework import generics, status, permissions
 # Local App
 # =============================================================
 from accounts.serializers.auth import ResendEmailSerializer
-from accounts.swagger.auth import register_schema
 from accounts.services.auth import ResendEmailService
 
 # =============================================================
@@ -18,7 +17,6 @@ from core.utils.responses import api_response
 # =============================================================
 # Resend Email View
 # =============================================================
-@register_schema
 class ResendEmailView(generics.GenericAPIView):
     serializer_class = ResendEmailSerializer
     permission_classes = [permissions.AllowAny]

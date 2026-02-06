@@ -7,7 +7,6 @@ from rest_framework import generics, status, permissions
 # Local App Serializers & Services
 # =============================================================
 from accounts.serializers.auth import LoginSerializer, UserSerializer
-from accounts.swagger.auth import login_schema
 from accounts.services.auth import LoginService
 
 # =============================================================
@@ -19,7 +18,6 @@ from core.utils.helpers import get_client_ip
 # =============================================================
 # Login View
 # =============================================================
-@login_schema
 class LoginView(generics.GenericAPIView):
     serializer_class = LoginSerializer
     permission_classes = [permissions.AllowAny]

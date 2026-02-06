@@ -1,11 +1,39 @@
+# =============================================================
+# Django REST Framework
+# =============================================================
 from rest_framework import serializers
-from core.constants.roles import ROLE_CHOICES
 
+# =============================================================
+# Role Constants
+# =============================================================
+from core.constants import ROLE_CHOICES
+
+# =============================================================
+# Change Role Serializer
+# =============================================================
 class ChangeRoleSerializer(serializers.Serializer):
     """
-    Serializer for changing a user's role.
+    Handles role update requests for a user.
+
+    Use Case:
+    - Admin role reassignment
+    - Back-office user management
+    - Permission escalation/demotion
     """
-    user_id = serializers.UUIDField(required=True, help_text="User ID to change role")
-    role = serializers.ChoiceField(choices=ROLE_CHOICES, required=True, help_text="New role")
-    
-    
+
+    # ---------------------------------------------------------
+    # Target User Identifier
+    # ---------------------------------------------------------
+    user_id = serializers.UUIDField(
+        required=True,
+        help_text="User ID whose role will be changed",
+    )
+
+    # ---------------------------------------------------------
+    # New Role Value
+    # ---------------------------------------------------------
+    role = serializers.ChoiceField(
+        choices=ROLE_CHOICES,
+        required=True,
+        help_text="New role to assign",
+    )

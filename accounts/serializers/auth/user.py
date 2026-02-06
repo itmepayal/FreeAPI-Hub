@@ -1,27 +1,20 @@
 # =============================================================
-# Django REST Framework Imports
+# Django REST Framework
 # =============================================================
 from rest_framework import serializers
 
 # =============================================================
-# Local Application Imports
+# Local Application Models
 # =============================================================
 from accounts.models import User, UserPresence, UserSecurity
 
 # =============================================================
-# Nested Serializers for Related Models
+# User Presence Serializer
 # =============================================================
-# These serializers expose read-only user-related metadata.
-# They live in separate tables to keep the main User model lean.
-# Nested serialization avoids redundant queries and improves clarity.
-# =============================================================
-
 class UserPresenceSerializer(serializers.ModelSerializer):
     """
-    Serializer for user's real-time presence information.
-
-    - Fields are managed by the system (not user-editable)
-    - Exposed as read-only
+    Exposes user real-time presence state.
+    System-managed fields only.
     """
 
     class Meta:
@@ -30,12 +23,13 @@ class UserPresenceSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+# =============================================================
+# User Security Serializer
+# =============================================================
 class UserSecuritySerializer(serializers.ModelSerializer):
     """
-    Serializer for user security-related flags.
-
-    - Only exposes high-level security state (e.g., 2FA enabled)
-    - Sensitive configuration details are not exposed
+    Exposes high-level security status flags.
+    Sensitive configuration is intentionally hidden.
     """
 
     class Meta:
@@ -45,29 +39,39 @@ class UserSecuritySerializer(serializers.ModelSerializer):
 
 
 # =============================================================
-# User Serializer (Main)
+# User Serializer (Primary)
 # =============================================================
-# Primary serializer for returning user profile data.
-# Used across the application in:
-# - Profile endpoints
-# - Authentication responses
-# - Admin user management
-#
-# Notes:
-# - Sensitive fields (password, tokens, etc.) are excluded
-# - Related models (presence, security) are nested and read-only
-# - Computed fields (avatar_url) provide safe URLs for frontend
-# =============================================================
-
 class UserSerializer(serializers.ModelSerializer):
+    """
+    Primary serializer for user profile responses.
+
+    Used In:
+    - Profile APIs
+    - Auth responses
+    - Admin user views
+
+    Excludes:
+    - Passwords
+    - Tokens
+    - Sensitive security internals
+    """
+
+    # ---------------------------------------------------------
+    # Computed Fields
+    # ---------------------------------------------------------
     avatar_url = serializers.SerializerMethodField(
-        help_text="Resolved absolute URL to the user's avatar image"
+        help_text="Resolved absolute avatar URL",
     )
 
-    # Nested, read-only related data
+    # ---------------------------------------------------------
+    # Nested Read-Only Relations
+    # ---------------------------------------------------------
     presence = UserPresenceSerializer(read_only=True)
     security = UserSecuritySerializer(read_only=True)
 
+    # ---------------------------------------------------------
+    # Model Configuration
+    # ---------------------------------------------------------
     class Meta:
         model = User
         fields = [
@@ -80,32 +84,39 @@ class UserSerializer(serializers.ModelSerializer):
             "presence",
             "security",
         ]
-        read_only_fields = ["id", "avatar_url", "presence", "security"]
+        read_only_fields = [
+            "id",
+            "avatar_url",
+            "presence",
+            "security",
+        ]
 
+    # ---------------------------------------------------------
+    # Field Resolvers
+    # ---------------------------------------------------------
     def get_avatar_url(self, obj):
         """
-        Returns the absolute URL for the user's avatar.
+        Resolve avatar URL consistently.
 
-        Logic:
+        Behavior:
         - Returns uploaded avatar if present
-        - Falls back to a default UI avatar if none exists
-
-        Keeping this in the model/serializer ensures consistency
-        across all API responses and frontend clients.
+        - Falls back to default avatar URL
         """
         return obj.avatar_url
 
 
 # =============================================================
-# Serializer for Updating Avatar
+# Update Avatar Serializer
 # =============================================================
 class UpdateAvatarSerializer(serializers.Serializer):
     """
-    Serializer to update user avatar.
-    Accepts:
-    - avatar: file upload (image)
+    Handles avatar image upload requests.
     """
+
+    # ---------------------------------------------------------
+    # Input Fields
+    # ---------------------------------------------------------
     avatar = serializers.ImageField(
         required=True,
-        help_text="Upload a new avatar image."
+        help_text="Upload a new avatar image",
     )
