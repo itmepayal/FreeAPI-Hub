@@ -7,4 +7,7 @@ from .roles import (
 )
 from .auth import (
     LOGIN_TYPE_CHOICES, 
+    LOGIN_EMAIL_PASSWORD,
+    LOGIN_GOOGLE,
+    LOGIN_GITHUB
 )

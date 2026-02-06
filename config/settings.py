@@ -167,6 +167,7 @@ SPECTACULAR_SETTINGS = {
 # =============================================================
 ROOT_URLCONF = "config.urls"
 ASGI_APPLICATION = "config.asgi.application"
+
 # Purpose: Configures URL routing and ASGI server entry point for WebSockets.
 
 # =============================================================

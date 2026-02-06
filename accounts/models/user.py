@@ -32,7 +32,6 @@ class User(BaseModel, AbstractBaseUser, PermissionsMixin):
     is_verified = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
-    is_superuser = models.BooleanField(default=False)
 
     # ----------------------
     # User Model Config
@@ -47,14 +46,21 @@ class User(BaseModel, AbstractBaseUser, PermissionsMixin):
     # ----------------------
     @property
     def avatar_url(self):
-        name = self.username or self.email.split("@")[0]
-        if self.avatar and self.avatar.startswith("http"):
+        if self.avatar and self.avatar.startswith(("http://", "https://")):
             return self.avatar
-        return f"https://ui-avatars.com/api/?name={quote(name)}&size=200"
+        if self.username:
+            name = self.username
+        elif self.email:
+            name = self.email.split("@")[0]
+        else:
+            name = "user"
+        encoded = quote(name)
+
+        return f"https://ui-avatars.com/api/?name={encoded}"
 
     # ----------------------
     # String Representation
     # ----------------------
     def __str__(self):
-        return self.email
+        return self.email or ""
     
