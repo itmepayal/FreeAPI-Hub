@@ -100,7 +100,7 @@ class TestUserSecurityModel:
         raw_token = user_security.generate_email_verification_token()
         assert user_security.verify_email_verification_token(raw_token) is True
     
-    def test_clear_email_verification_token(safe, user_security):
+    def test_clear_email_verification_token(self, user_security):
         user_security.generate_email_verification_token()
         user_security.clear_email_verification_token()
         user_security.refresh_from_db()

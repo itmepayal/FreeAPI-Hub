@@ -22,4 +22,3 @@ class UserFactory(factory.django.DjangoModelFactory):
         self.set_password(pwd)
         if create:
             self.save()
-    

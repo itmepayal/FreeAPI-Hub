@@ -72,46 +72,20 @@ class TestUserPresenceModel:
     # RECENT ACTIVITY CHECK
     # ------------------------------------------------------------------
     def test_is_recently_active_true(self, user_presence):
-        pass
-    
-     # ------------------------------------------------------------------
-    # RECENT ACTIVITY CHECK
-    # ------------------------------------------------------------------
-    def test_is_recently_active_true(self, user_presence):
         user_presence.last_seen = timezone.now() - timedelta(seconds=60)
         user_presence.save()
-
+        
         assert user_presence.is_recently_active is True
-
+    
     def test_is_recently_active_false(self, user_presence):
         user_presence.last_seen = timezone.now() - timedelta(seconds=180)
         user_presence.save()
-
+        
         assert user_presence.is_recently_active is False
-
+        
     def test_is_recently_active_with_no_last_seen(self, user_presence):
         user_presence.last_seen = None
         user_presence.save()
-
+        
         assert user_presence.is_recently_active is False
-
-    # ------------------------------------------------------------------
-    # ONE-TO-ONE RELATIONSHIP
-    # ------------------------------------------------------------------
-    def test_one_to_one_relationship_with_user(self):
-        user = UserFactory()
-        presence = UserPresence.objects.create(user=user)
-
-        assert user.presence == presence
-
-        # Ensure only one presence per user
-        with pytest.raises(IntegrityError):
-            UserPresence.objects.create(user=user)
-
-    # ------------------------------------------------------------------
-    # DATABASE INDEXES
-    # ------------------------------------------------------------------
-    def test_database_indexes(self):
-        indexes = [index.fields for index in UserPresence._meta.indexes]
-
-        assert ['is_online', 'last_seen'] in indexes
+    

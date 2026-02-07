@@ -7,6 +7,7 @@ from django.contrib.auth.password_validation import validate_password
 # Django REST Framework
 # =============================================================
 from rest_framework import serializers
+from rest_framework.validators import UniqueValidator
 
 # =============================================================
 # Local Application Models
@@ -33,6 +34,12 @@ class RegisterSerializer(serializers.ModelSerializer):
     email = serializers.EmailField(
         required=True,
         help_text="Enter a valid email address",
+        validators=[
+            UniqueValidator(
+                queryset=User.objects.all(),
+                message="Email is already registered."
+            )
+        ],
     )
 
     username = serializers.CharField(
@@ -56,6 +63,9 @@ class RegisterSerializer(serializers.ModelSerializer):
     # ---------------------------------------------------------
     # Field Validators
     # ---------------------------------------------------------
+    def validate_email(self, value):
+        return value.strip().lower()
+    
     def validate_password(self, value):
         """Validate password strength using Django validators."""
         try:

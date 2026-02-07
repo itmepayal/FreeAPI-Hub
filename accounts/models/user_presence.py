@@ -1,6 +1,6 @@
 from django.db import models
 from django.utils import timezone
-
+from datetime import timedelta
 from core.models.base import BaseModel
 
 class UserPresence(BaseModel):
@@ -18,7 +18,7 @@ class UserPresence(BaseModel):
     # ----------------------
     is_online = models.BooleanField(default=False, db_index=True)
     last_seen = models.DateTimeField(blank=True, null=True,  db_index=True)
-    status_message = models.CharField(max_length=255, blank=True, null=True, default="Hey there! I am using config Hub.")
+    status_message = models.CharField(max_length=255, blank=True, default="Hey there! I am using config Hub.")
     
     # ----------------------
     # Online Presence Helpers
@@ -44,7 +44,7 @@ class UserPresence(BaseModel):
     def is_recently_active(self):
         if not self.last_seen:
             return False
-        return (timezone.now() - self.last_seen).seconds < 120
+        return timezone.now() - self.last_seen < timedelta(seconds=120)
 
     # ----------------------
     # String Representation

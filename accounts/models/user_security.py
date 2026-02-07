@@ -85,7 +85,10 @@ class UserSecurity(BaseModel):
         if timezone.now() > self.forgot_password_expiry:
             return False
         
-        return hash_token(token) == self.forgot_password_token
+        return secrets.compare_digest(
+            hash_token(token),
+            self.forgot_password_token
+        )
         
     def verify_email_verification_token(self, token: str) -> bool:
         if not self.email_verification_token:
@@ -127,6 +130,8 @@ class UserSecurity(BaseModel):
         return self.totp_secret
 
     def get_totp_uri(self):
+        if not self.totp_secret:
+            return None
         issuer = urllib.parse.quote(settings.TOTP_ISSUER_NAME)
         email = urllib.parse.quote(self.user.email)
         return (
