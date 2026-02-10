@@ -57,3 +57,4 @@ class UserPresence(BaseModel):
             models.Index(fields=["is_online", "last_seen"]),
         ]
         
+        
