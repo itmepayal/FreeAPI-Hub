@@ -27,7 +27,11 @@ class OAuthCallbackSerializer(serializers.Serializer):
         help_text="Authorization code returned by OAuth provider (Google/GitHub).",
     )
 
-
+    def validate_code(self, value):
+        if not isinstance(value, str):
+            raise serializers.ValidationError("Code must be a string")
+        return value
+    
 # =============================================================
 # Empty Serializer
 # =============================================================
