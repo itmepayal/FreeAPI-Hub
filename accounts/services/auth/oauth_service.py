@@ -18,7 +18,7 @@ from accounts.models import User, UserSecurity, UserPresence
 # =============================================================
 # Core Constants
 # =============================================================
-from core.constants.auth import LOGIN_GOOGLE
+from core.constants.auth import LOGIN_GOOGLE, LOGIN_GITHUB
 
 # =============================================================
 # Core Utilities
@@ -103,7 +103,6 @@ class GoogleOAuthService(BaseService):
                     defaults={
                         "username": username,
                         "is_verified": True,
-                        "login_type": LOGIN_GOOGLE,
                     },
                 )
 
@@ -111,7 +110,11 @@ class GoogleOAuthService(BaseService):
                     user.username = username
                     user.is_verified = True
                     user.login_type = LOGIN_GOOGLE
-                    user.save(update_fields=["username", "is_verified", "login_type"])
+                    user.save(update_fields=["username", "is_verified"])
+                    
+                security, _ = UserSecurity.objects.get_or_create(user=user)
+                security.login_type = LOGIN_GOOGLE
+                security.save(update_fields=["login_type"])
 
                 # Step 4 — Ensure related records exist
                 UserSecurity.objects.get_or_create(user=user)
@@ -195,15 +198,17 @@ class GitHubOAuthService(BaseService):
                     defaults={
                         "username": username,
                         "is_verified": True,
-                        "login_type": LOGIN_GITHUB,
                     },
                 )
 
                 if not created:
                     user.username = username
                     user.is_verified = True
-                    user.login_type = LOGIN_GITHUB
-                    user.save(update_fields=["username", "is_verified", "login_type"])
+                    user.save(update_fields=["username", "is_verified"])
+                    
+                security, _ = UserSecurity.objects.get_or_create(user=user)
+                security.login_type = LOGIN_GITHUB
+                security.save(update_fields=["login_type"])
 
                 UserSecurity.objects.get_or_create(user=user)
                 UserPresence.objects.get_or_create(user=user)
