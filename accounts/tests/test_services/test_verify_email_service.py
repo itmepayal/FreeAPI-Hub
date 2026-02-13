@@ -2,17 +2,19 @@
 # Pytest: VerifyEmailService
 # =============================================================
 import pytest
-from unittest.mock import patch
-from django.utils import timezone
-from datetime import timedelta
 
 # =============================================================
-# Local Models
+# Local Imports — Models Under Test
 # =============================================================
 from accounts.models import UserSecurity, User
 
 # =============================================================
-# Core Exceptions
+# Local Imports — Service Under Test
+# =============================================================
+from accounts.services.auth import VerifyEmailService
+
+# =============================================================
+# Core Exceptions — Expected Failure Types
 # =============================================================
 from core.exceptions import (
     InvalidTokenException,
@@ -20,158 +22,167 @@ from core.exceptions import (
 )
 
 # =============================================================
-# Services
-# =============================================================
-from accounts.services.auth import VerifyEmailService
-
-# =============================================================
-# Test Case 1: Success Path
+# Test Case 1: Successful Email Verification
 # =============================================================
 @pytest.mark.django_db
-def test_verify_email_success():
-    # Step 1 — Create user (signal automatically creates UserSecurity)
-    user = User.objects.create(
-        username="testuser",
-        email="test@example.com",
-        is_verified=False
-    )
+def test_verify_email_success(
+    user_factory,
+    set_security_flags,
+    mock_hash_token,
+    future_time,
+):
+    # Step 1 — Arrange: Create unverified user
+    user = user_factory(is_verified=False)
 
-    # Step 2 — Fetch the UserSecurity object created by signal
+    # Step 2 — Arrange: Fetch related security profile
     security = UserSecurity.objects.get(user=user)
     token_in_db = security.email_verification_token
 
-    # Step 3 — Ensure token expiry is in the future
-    security.email_verification_expiry = timezone.now() + timedelta(hours=1)
-    security.save()
+    # Step 3 — Arrange: Set token expiry in future
+    set_security_flags(
+        user,
+        email_verification_expiry=future_time
+    )
 
-    # Step 4 — Patch hash_token in the service module
-    with patch(
-        "accounts.services.auth.verify_email_service.hash_token",
-        return_value=token_in_db
-    ):
-        # Step 4a — Call the service with any raw token
-        result = VerifyEmailService.verify_email("raw_token_here")
+    # Step 4 — Arrange: Mock hash_token to match DB token
+    mock_hash_token.return_value = token_in_db
 
-    # Step 5 — Assertions: service returns security object, user marked verified
+    # Step 5 — Act: Execute email verification
+    result = VerifyEmailService.verify_email("raw_token_here")
+
+    # Step 6 — Assert: Returned object is security profile
     assert result == security
+
+    # Step 7 — Assert: User is now marked verified
     user.refresh_from_db()
-    security.refresh_from_db()
     assert user.is_verified is True
+
 
 # =============================================================
 # Test Case 2: Invalid Token
 # =============================================================
 @pytest.mark.django_db
-def test_verify_email_invalid_token():
-    # Step 1 — Patch hash_token to return a token that does NOT exist in DB
-    with patch(
-        "accounts.services.auth.verify_email_service.hash_token",
-        return_value="non_existent_token"
-    ):
-        # Step 2 — Call service with some raw token and expect InvalidTokenException
-        with pytest.raises(InvalidTokenException) as excinfo:
-            VerifyEmailService.verify_email("some_invalid_token")
+def test_verify_email_invalid_token(mock_hash_token):
 
-        # Step 3 — Assert exception message is correct
-        assert "Invalid or expired verification token" in str(excinfo.value)
+    # Step 1 — Arrange: Hash resolves to non-existent token
+    mock_hash_token.return_value = "non_existent_token"
+
+    # Step 2 — Act + Assert: Expect invalid token exception
+    with pytest.raises(InvalidTokenException) as excinfo:
+        VerifyEmailService.verify_email("bad_token")
+
+    # Step 3 — Assert: Error message is correct
+    assert "Invalid or expired verification token" in str(excinfo.value)
 
 
 # =============================================================
-# Test Case 3: Already Verified
+# Test Case 3: Already Verified User
 # =============================================================
 @pytest.mark.django_db
-def test_verify_email_already_verified():
-    """
-    Test user already verified raises OperationNotAllowedException
-    """
-    # Step 1 — Create a verified user
-    user = User.objects.create(
-        username="verified_user",
-        email="verified@example.com",
-        is_verified=True
-    )
+def test_verify_email_already_verified(
+    user_factory,
+    set_security_flags,
+    mock_hash_token,
+    future_time,
+):
+    # Step 1 — Arrange: Create already verified user
+    user = user_factory(is_verified=True)
 
-    # Step 2 — Fetch UserSecurity
+    # Step 2 — Arrange: Fetch security profile
     security = UserSecurity.objects.get(user=user)
     token_in_db = security.email_verification_token
 
-    # Step 3 — Ensure token is valid
-    security.email_verification_expiry = timezone.now() + timedelta(hours=1)
-    security.save()
+    # Step 3 — Arrange: Ensure token expiry still valid
+    set_security_flags(
+        user,
+        email_verification_expiry=future_time
+    )
 
-    # Step 4 — Patch hash_token
-    with patch(
-        "accounts.services.auth.verify_email_service.hash_token",
-        return_value=token_in_db
-    ):
-        # Step 5 — Expect exception since user is already verified
-        with pytest.raises(OperationNotAllowedException) as excinfo:
-            VerifyEmailService.verify_email("raw_token_here")
-        assert "Email already verified" in str(excinfo.value)
+    # Step 4 — Arrange: Mock hash_token match
+    mock_hash_token.return_value = token_in_db
+
+    # Step 5 — Act + Assert: Expect already verified error
+    with pytest.raises(OperationNotAllowedException) as excinfo:
+        VerifyEmailService.verify_email("raw_token")
+
+    # Step 6 — Assert: Correct message returned
+    assert "Email already verified" in str(excinfo.value)
+
 
 # =============================================================
 # Test Case 4: Expired Token
 # =============================================================
 @pytest.mark.django_db
-def test_verify_email_expired_token():
-    """
-    Test expired token raises InvalidTokenException
-    """
-    # Step 1 — Create unverified user
-    user = User.objects.create(
-        username="expired_user",
-        email="expired@example.com",
-        is_verified=False
-    )
+def test_verify_email_expired_token(
+    user_factory,
+    set_security_flags,
+    mock_hash_token,
+    past_time,
+):
+    # Step 1 — Arrange: Create unverified user
+    user = user_factory(is_verified=False)
 
-    # Step 2 — Fetch UserSecurity
+    # Step 2 — Arrange: Fetch security profile
     security = UserSecurity.objects.get(user=user)
 
-    # Step 3 — Expire token
+    # Step 3 — Arrange: Force known token value
     security.email_verification_token = "hashed_token_here"
-    security.email_verification_expiry = timezone.now() - timedelta(hours=1)  # expired
     security.save()
 
-    # Step 4 — Patch hash_token to match DB
-    with patch(
-        "accounts.services.auth.verify_email_service.hash_token",
-        return_value="hashed_token_here"
-    ):
-        # Step 5 — Expect InvalidTokenException
-        with pytest.raises(InvalidTokenException) as excinfo:
-            VerifyEmailService.verify_email("raw_token_here")
-        assert "Invalid or expired verification token" in str(excinfo.value)
+    # Step 4 — Arrange: Set expiry in the past
+    set_security_flags(
+        user,
+        email_verification_expiry=past_time
+    )
+
+    # Step 5 — Arrange: Mock hash_token match
+    mock_hash_token.return_value = "hashed_token_here"
+
+    # Step 6 — Act + Assert: Expect expired token error
+    with pytest.raises(InvalidTokenException) as excinfo:
+        VerifyEmailService.verify_email("raw")
+
+    # Step 7 — Assert: Correct message returned
+    assert "Invalid or expired verification token" in str(excinfo.value)
+
 
 # =============================================================
-# Test Case 5: Atomic Save Failure
+# Test Case 5: Atomic Save Failure During Verification
 # =============================================================
 @pytest.mark.django_db
-def test_verify_email_atomic_save_failure():
-    """
-    Test transaction fails if saving user raises exception
-    """
-    # Step 1 — Create user
-    user = User.objects.create(
-        username="atomic_user",
-        email="atomic@example.com",
-        is_verified=False
-    )
+def test_verify_email_atomic_save_failure(
+    user_factory,
+    set_security_flags,
+    mock_hash_token,
+    future_time,
+):
+    from unittest.mock import patch
 
-    # Step 2 — Fetch UserSecurity
+    # Step 1 — Arrange: Create unverified user
+    user = user_factory(is_verified=False)
+
+    # Step 2 — Arrange: Fetch security profile
     security = UserSecurity.objects.get(user=user)
 
-    # Step 3 — Set valid token and future expiry
+    # Step 3 — Arrange: Set known token value
     security.email_verification_token = "hashed_token_here"
-    security.email_verification_expiry = timezone.now() + timedelta(hours=1)
     security.save()
 
-    # Step 4 — Patch hash_token and make User.save fail
-    with patch(
-        "accounts.services.auth.verify_email_service.hash_token",
-        return_value="hashed_token_here"
-    ), patch.object(User, "save", side_effect=Exception("DB fail")):
-        # Step 5 — Expect exception
+    # Step 4 — Arrange: Set valid future expiry
+    set_security_flags(
+        user,
+        email_verification_expiry=future_time
+    )
+
+    # Step 5 — Arrange: Mock hash_token match
+    mock_hash_token.return_value = "hashed_token_here"
+
+    # Step 6 — Arrange: Force DB save failure
+    with patch.object(User, "save", side_effect=Exception("DB fail")):
+
+        # Step 7 — Act + Assert: Expect propagated exception
         with pytest.raises(Exception) as excinfo:
-            VerifyEmailService.verify_email("raw_token_here")
-        # Step 6 — Assert exception message
-        assert "DB fail" in str(excinfo.value)
+            VerifyEmailService.verify_email("raw")
+
+    # Step 8 — Assert: Failure reason preserved
+    assert "DB fail" in str(excinfo.value)
